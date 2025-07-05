@@ -13,7 +13,7 @@ fn main() -> anyhow::Result<()>
     {
         match stream
         {
-            Ok(mut stream) => {
+            Ok(stream) => {
                 println!("accepted new connection");
                 let Ok(_) = process_stream(stream) else {
                     bail!("An error occurred when attempting to process the stream");
