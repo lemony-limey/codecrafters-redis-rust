@@ -18,11 +18,9 @@ async fn main() -> anyhow::Result<()>
         let (stream, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            handle_connection(stream).await
+            handle_connection(stream).await.unwrap();
         });
     }
-
-    Ok(())
 }
 
 /// Asynchronously handle an incoming connection.
@@ -42,13 +40,18 @@ async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
         if line.eq_ignore_ascii_case("PING")
         {
             let buffer = b"+PONG\r\n";
+            
+            // Write the contents of the buffer to the stream.
             writer.write_all(buffer)
                 .await
                 .with_context(|| "Could not write buffer contents to TCP stream")?;
+            
+            // Ensure the data is written to the stream immediately.
+            writer.flush().await?;
         }
     }
     
-    // Close the output stream to allow for the st
+    // Close the output stream
     writer.shutdown().await?;
 
     Ok(())
