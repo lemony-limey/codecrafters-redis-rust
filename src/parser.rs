@@ -1,29 +1,33 @@
-use nom::Err;
-use nom::bytes::complete::take;
 use nom::{
+    bytes::complete::take,
+    character::complete::{
+        crlf,
+        digit1,
+        not_line_ending,
+        space0,
+    },
+    combinator::peek,
+    error::{
+        Error,
+        ErrorKind,
+    },
+    Err,
     IResult,
     Parser,
-    bytes::complete::{tag, take_while_m_n},
     character::complete::char,
     combinator::map_res,
 };
-use nom::bytes::take_while;
-use nom::character::complete::{crlf, digit1, not_line_ending, space0};
-use nom::error::{Error, ErrorKind};
-use nom::multi::many0;
-use nom::number::complete::be_i64;
 
 /// \r\n is the RESP terminator, which ALWAYS separates parts.
 /// Simple strings will never contain a \r or \n, but bulk strings
 /// could have these as binary data.
-enum RESPValue
-{                         // First character, format example
-    SimpleString(String), // +  e.g. +OK\r\n
-    SimpleError(String),  // -  e.g. -Error message\r\n
-    Integer(i64),         // :  [<+|->]<value>\r\n,
-    BulkString(String),   // $  $<length>\r\n<data>\r\n
-                     //    or  $-1\r\n for null bulk string
-    Array(Vec<RESPValue>),  // *  *<no-of-elems>\r\n<elem-1>...<elem-n-1><elem-n>
+enum RESPValue<'a>
+{                              // First character
+    SimpleString(&'a str),     // +
+    SimpleError(&'a str),      // -
+    Integer(i64),              // :
+    BulkString(&'a str),       // $
+    Array(Vec<RESPValue<'a>>), // *
                      //    so, and empty array is *0\r\n
     Null,            // _\r\n  -or-  *-1\r\n for a null array
                      //    so, and empty array is *0\r\n
@@ -41,20 +45,20 @@ enum RESPValue
 /// Checks the first non-whitespace character and attempts to parse an instance
 /// of the RESP data type associated with that character (e.g., if the first
 /// character of the input string is a '+', we know to look for a simple string).
-fn resp_command(input: &str) -> IResult<&str, &str>
+fn resp_value(input: &str) -> IResult<&str, RESPValue>
 {
     // Get the first character of the current string
-    let (input_remaining, data_type) = take(1usize)(input)?;
+    let (input_remaining, data_type) = peek(take(1usize)).parse(input)?;
 
     // Match the first character to determine what kind of data type
     // is to be parsed.
     match data_type
     {
-        "+" => {},
-        "-" => {},
-        ":" => {},
-        "$" => {},
-        "*" => {},
+        "+" => resp_simple_string(input_remaining),
+        "-" => resp_simple_error(input_remaining),
+        ":" => resp_integer(input_remaining),
+        "$" => resp_bulk_string(input_remaining),
+        "*" => resp_array(input_remaining),
         // "_" => {},
         // "#" => {},
         // "," => {},
@@ -65,20 +69,15 @@ fn resp_command(input: &str) -> IResult<&str, &str>
         // "|" => {},
         // "~" => {},
         // ">" => {},
-        _ => {}
+        // Indicate that parsing could not occur because first character of the string
+        // was not recognised.
+        _ => Err(Err::Failure(Error { input, code: ErrorKind::Fail }))
     }
-
-    Ok(("", ""))
-}
-
-fn resp_value(input: &str) -> IResult<&str, RESPValue>
-{
-    
 }
 
 /// Parse a simple string and return its contents.
 /// Simple strings begin with a "+".
-fn simple_string(input: &str) -> IResult<&str, &str>
+fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
 {
     // Consume a '+'
     let (remaining_input, _) = char('+')(input)?;
@@ -87,13 +86,16 @@ fn simple_string(input: &str) -> IResult<&str, &str>
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
     
-    Ok((remaining_input, simple_string))
+    Ok((
+        remaining_input,
+        RESPValue::SimpleString(simple_string),
+    ))
 }
 
 /// Parse a simple error string and return its contents.
 ///
 /// Simple error strings begin with a "-".
-fn simple_error(input: &str) -> IResult<&str, &str>
+fn resp_simple_error(input: &str) -> IResult<&str, RESPValue>
 {
     // Consume a '-'
     let (remaining_input, _) = char('-')(input)?;
@@ -102,10 +104,13 @@ fn simple_error(input: &str) -> IResult<&str, &str>
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
 
-    Ok((remaining_input, simple_error))
+    Ok((
+        remaining_input,
+        RESPValue::SimpleError(simple_error),
+    ))
 }
 
-fn resp_integer(input: &str) -> IResult<&str, i64>
+fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 {
     // Consume a ':'
     let (remaining_input, _) = char(':')(input)?;
@@ -116,10 +121,13 @@ fn resp_integer(input: &str) -> IResult<&str, i64>
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
 
-    Ok((remaining_input, integer_value))
+    Ok((
+        remaining_input,
+        RESPValue::Integer(integer_value),
+    ))
 }
 
-fn bulk_string(input: &str) -> IResult<&str, &str>
+fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 {
     // Consume a '$'
     let (remaining_input, _) = char('$')(input)?;
@@ -136,7 +144,35 @@ fn bulk_string(input: &str) -> IResult<&str, &str>
     // Consume the second CRLF delimiter
     let (remaining_input, _) = crlf(remaining_input)?;
 
-    Ok((remaining_input, ""))
+    Ok((
+        remaining_input,
+        RESPValue::BulkString(inner_string),
+    ))
+}
+
+fn resp_array(input: &str) -> IResult<&str, RESPValue>
+{
+    // Parse the *
+    let (remaining_input, _) = char('*')(input)?;
+
+    // Get the length of the array
+    let (mut remaining_input, array_length) = parse_u32(remaining_input)?;
+
+    // Get the contents of the array
+    let mut array_contents: Vec<RESPValue> = Vec::with_capacity(array_length as usize);
+
+    for i in 0..array_length
+    {
+        let (current_remaining_input, next_entry) = resp_value(remaining_input)?;
+        remaining_input = current_remaining_input;
+
+        array_contents.push(next_entry);
+    }
+
+    Ok((
+        remaining_input,
+        RESPValue::Array(array_contents),
+    ))
 }
 
 fn parse_i64(input: &str) -> IResult<&str, i64>
@@ -155,12 +191,4 @@ mod tests
     use super::*;
     use nom::bytes::complete::take;
 
-    #[test]
-    fn test_get_first_character()
-    {
-        let input = "+hello\r\n";
-        let Ok((input_remaining, data_type)) = take(1usize)(input) else {
-            panic!()
-        };
-    }
 }
