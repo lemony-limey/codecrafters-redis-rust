@@ -2,6 +2,7 @@
 // https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
 // I have used much of this code.
 
+use std::ascii::AsciiExt;
 use std::io::BufWriter;
 use anyhow::Context;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, WriteHalf};
@@ -25,9 +26,9 @@ pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
     let _bytes_received = reader.read_to_string(&mut buffer).await?;
 
     // Iterate over every line from the client.
-    while !buffer.is_empty()
+    loop
     {
-
+        let _bytes_received = reader.read_to_string(&mut buffer).await?;
         println!("{buffer}");
         let (remaining_input, command) = redis_command(buffer.clone())?;
 
@@ -63,8 +64,10 @@ pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
         }
 
         buffer = remaining_input;
-        let _bytes_received = reader.read_to_string(&mut buffer).await?;
         println!("buffer now: {}", buffer);
+
+        // Exit from loop if buffer is empty
+        if buffer.is_empty() || buffer.eq_ignore_ascii_case("") { break; }
     }
 
     // Close the output stream
