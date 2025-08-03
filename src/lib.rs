@@ -46,11 +46,11 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
                 writer.flush().await?;
             },
             RedisCommand::Echo { message } => {
-                let buffer = format!("${}\r\n{}\r\n", message.len(), message);
-                let buffer = buffer.as_bytes();
+                let response = format!("${}\r\n{}\r\n", message.len(), message.as_str());
+                let response = response.as_bytes();
 
                 // Write the contents of the buffer to the stream.
-                writer.write_all(buffer)
+                writer.write_all(response)
                       .await
                       .with_context(|| "Could not write buffer contents to TCP stream")?;
 
@@ -61,6 +61,7 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
         }
 
         buffer = remaining_input;
+        println!("buffer now: {}", buffer);
     }
 
     // Close the output stream
