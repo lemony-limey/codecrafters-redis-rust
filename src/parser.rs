@@ -5,6 +5,7 @@
 use std::error::Error;
 use thiserror::Error;
 use std::fmt::Formatter;
+use bytes::BytesMut;
 use nom::{
     bytes::complete::take,
     character::complete::{
@@ -103,45 +104,47 @@ enum RedisBufSplit
 
 type RedisResult = IResult<Option<(usize, RedisBufSplit)>, RESPError>;
 
-// pub fn redis_command(input: BufSplit) -> anyhow::Result<(usize, RedisCommand)>
-// {
-//     let Ok((remaining_input, command_value)) = resp_value(input.as_str()).map_err()?;
-//     let mut command: RedisCommand = RedisCommand::Ping;
-//
-//     // Commands are arrays of bulk strings
-//     let RESPValue::Array(resp_array) = command_value else {
-//         return Err(RESPError::ParseError.into());
-//     };
-//
-//     // The first (and possibly second) bulk strings form the name of the command
-//     let RESPValue::BulkString(command_name) = &resp_array[0] else {
-//         return Err(RESPError::ParseError.into());
-//     };
-//
-//     match command_name.as_str()
-//     {
-//         "ping" => {
-//             command = RedisCommand::Ping;
-//         },
-//         "echo" => {
-//             let RESPValue::BulkString(message) = &resp_array[1] else {
-//                 return Err(RESPError::ParseError.into());
-//             };
-//             command = RedisCommand::Echo { message: message.clone() };
-//         },
-//         _ => return Err(RESPError::ParseError.into()),
-//     }
-//
-//     Ok((
-//         remaining_input.to_string(),
-//         command,
-//     ))
-// }
+pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
+{
+    let Ok((remaining_input, command_value)) = redis_value(input.as_str()) else {
+        return Err(RESPError::ParseError.into());
+    };
+    let mut command: RedisCommand = RedisCommand::Ping;
+
+    // Commands are arrays of bulk strings
+    let RESPValue::Array(resp_array) = command_value else {
+        return Err(RESPError::ParseError.into());
+    };
+
+    // The first (and possibly second) bulk strings form the name of the command
+    let RESPValue::BulkString(command_name) = &resp_array[0] else {
+        return Err(RESPError::ParseError.into());
+    };
+
+    match command_name.as_str()
+    {
+        "ping" => {
+            command = RedisCommand::Ping;
+        },
+        "echo" => {
+            let RESPValue::BulkString(message) = &resp_array[1] else {
+                return Err(RESPError::ParseError.into());
+            };
+            command = RedisCommand::Echo { message: message.clone() };
+        },
+        _ => return Err(RESPError::ParseError.into()),
+    }
+
+    Ok((
+        remaining_input.to_string(),
+        command,
+    ))
+}
 
 /// Checks the first non-whitespace character and attempts to parse an instance
 /// of the RESP data type associated with that character (e.g., if the first
 /// character of the input string is a '+', we know to look for a simple string).
-pub fn redis_value(input: BufSplit) -> IResult<&str, RESPValue>
+pub fn redis_value(input: &str) -> IResult<&str, RESPValue>
 {
     // Get the first character of the current string
     let (remaining_input, data_type) = peek(take(1usize)).parse(input)?;
@@ -284,7 +287,17 @@ fn parse_u32(input: &str) -> IResult<&str, u32>
 {
     map_res(digit1, str::parse::<u32>).parse(input)
 }
-
+//
+// fn word(buffer: &BytesMut, position: usize) -> Option<(usize, BufSplit)>
+// {
+//     if buffer.len() <= position
+//     {
+//         return None;
+//     }
+//
+//
+// }
+//
 
 #[cfg(test)]
 mod tests
