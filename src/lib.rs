@@ -23,6 +23,7 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
     //      parsing will fail.
     let mut buffer = String::new();
     let bytes_received = reader.read_to_string(&mut buffer).await?;
+    println!("Buffer Initial: {}", buffer);
 
     // Iterate over every line from the client.
     while !buffer.is_empty()

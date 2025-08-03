@@ -19,7 +19,8 @@ async fn main() -> anyhow::Result<()>
         let (stream, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            handle_connection(stream).await.unwrap();
+            let result = handle_connection(stream).await.unwrap();
+            println!("{result:#?}");
         });
     }
 }

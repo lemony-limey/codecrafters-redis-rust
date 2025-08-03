@@ -3,9 +3,7 @@
 // https://github.com/rust-bakery/nom/blob/main/doc/choosing_a_combinator.md
 
 use std::error::Error;
-use thiserror::Error;
 use std::fmt::Formatter;
-use bytes::BytesMut;
 use nom::{
     bytes::complete::take,
     character::complete::{
@@ -30,6 +28,7 @@ pub struct RESPParser;
 /// \r\n is the RESP terminator, which ALWAYS separates parts.
 /// Simple strings will never contain a \r or \n, but bulk strings
 /// could have these as binary data.
+#[derive(Debug)]
 pub enum RESPValue
 {                              // First character
     SimpleString(String),     // +
@@ -67,7 +66,7 @@ pub enum RESPError
     #[error("Bad array size")]
     BadArraySize(i64),
     #[error("Failed to parse input")]
-    ParseError,
+    ParseError(&'static str),
 }
 
 impl std::fmt::Debug for RESPError
@@ -90,49 +89,37 @@ pub enum RedisCommand
     Echo { message: String },
 }
 
-struct BufSplit(usize, usize);
-
-enum RedisBufSplit
-{
-    String(BufSplit),
-    Error(BufSplit),
-    Int(i64),
-    Array(Vec<RedisBufSplit>),
-    NullArray,
-    NullBulkString,
-}
-
-type RedisResult = IResult<Option<(usize, RedisBufSplit)>, RESPError>;
-
 pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
 {
     let Ok((remaining_input, command_value)) = redis_value(input.as_str()) else {
-        return Err(RESPError::ParseError.into());
+        return Err(RESPError::UnknownStartingByte.into());
     };
     let mut command: RedisCommand = RedisCommand::Ping;
 
     // Commands are arrays of bulk strings
     let RESPValue::Array(resp_array) = command_value else {
-        return Err(RESPError::ParseError.into());
+        println!("Failed to parse whole command");
+        return Err(RESPError::ParseError("dodgy array").into());
     };
 
     // The first (and possibly second) bulk strings form the name of the command
     let RESPValue::BulkString(command_name) = &resp_array[0] else {
-        return Err(RESPError::ParseError.into());
+        println!("Failed to get command name");
+        return Err(RESPError::ParseError("dodgy bulk string").into());
     };
 
-    match command_name.as_str()
+    match command_name.to_lowercase().as_str()
     {
         "ping" => {
             command = RedisCommand::Ping;
         },
         "echo" => {
             let RESPValue::BulkString(message) = &resp_array[1] else {
-                return Err(RESPError::ParseError.into());
+                return Err(RESPError::ParseError("").into());
             };
             command = RedisCommand::Echo { message: message.clone() };
         },
-        _ => return Err(RESPError::ParseError.into()),
+        _ => return Err(RESPError::ParseError("").into()),
     }
 
     Ok((
@@ -146,6 +133,8 @@ pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
 /// character of the input string is a '+', we know to look for a simple string).
 pub fn redis_value(input: &str) -> IResult<&str, RESPValue>
 {
+    println!("redis_value start: {}", input);
+
     // Get the first character of the current string
     let (remaining_input, data_type) = peek(take(1usize)).parse(input)?;
 
@@ -178,12 +167,15 @@ pub fn redis_value(input: &str) -> IResult<&str, RESPValue>
 /// Simple strings begin with a "+".
 fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
 {
+    println!("resp_string: {}", input);
     // Consume a '+'
     let (remaining_input, _) = char('+')(input)?;
     // Get the string
     let (remaining_input, simple_string) = not_line_ending(remaining_input)?;
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
+
+    println!("resp string result: ({}, {})", remaining_input, simple_string);
 
     Ok((
         remaining_input,
@@ -211,6 +203,7 @@ fn resp_simple_error(input: &str) -> IResult<&str, RESPValue>
 
 fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 {
+    println!("resp_integer: {}", input);
     // Consume a ':'
     let (remaining_input, _) = char(':')(input)?;
 
@@ -220,6 +213,8 @@ fn resp_integer(input: &str) -> IResult<&str, RESPValue>
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
 
+    println!("resp int result: ({}, {})", remaining_input, integer_value);
+
     Ok((
         remaining_input,
         RESPValue::Integer(integer_value),
@@ -228,6 +223,7 @@ fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 
 fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 {
+    // println!("bulk_string: {}", input);
     // Consume a '$'
     let (remaining_input, _) = char('$')(input)?;
 
@@ -243,6 +239,8 @@ fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
     // Consume the second CRLF delimiter
     let (remaining_input, _) = crlf(remaining_input)?;
 
+    println!("bulk string result: ({}, {})", remaining_input, inner_string);
+
     Ok((
         remaining_input,
         RESPValue::BulkString(inner_string.to_owned()),
@@ -251,6 +249,8 @@ fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 
 fn resp_array(input: &str) -> IResult<&str, RESPValue>
 {
+    // println!("resp_array: {}", input);
+
     // Parse the *
     let (remaining_input, _) = char('*')(input)?;
 
@@ -272,6 +272,8 @@ fn resp_array(input: &str) -> IResult<&str, RESPValue>
         array_contents.push(next_entry);
     }
 
+    println!("resp array result: ({}, {:#?})", remaining_input, array_contents);
+
     Ok((
         remaining_input,
         RESPValue::Array(array_contents),
@@ -287,17 +289,6 @@ fn parse_u32(input: &str) -> IResult<&str, u32>
 {
     map_res(digit1, str::parse::<u32>).parse(input)
 }
-//
-// fn word(buffer: &BytesMut, position: usize) -> Option<(usize, BufSplit)>
-// {
-//     if buffer.len() <= position
-//     {
-//         return None;
-//     }
-//
-//
-// }
-//
 
 #[cfg(test)]
 mod tests
