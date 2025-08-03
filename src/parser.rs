@@ -2,6 +2,9 @@
 // https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
 // https://github.com/rust-bakery/nom/blob/main/doc/choosing_a_combinator.md
 
+use std::error::Error;
+use thiserror::Error;
+use std::fmt::Formatter;
 use nom::{
     bytes::complete::take,
     character::complete::{
@@ -11,7 +14,6 @@ use nom::{
     },
     combinator::peek,
     error::{
-        Error,
         ErrorKind,
     },
     Err,
@@ -48,6 +50,38 @@ pub enum RESPValue
     Push,            // >
 }
 
+#[derive(thiserror::Error)]
+pub enum RESPError
+{
+    #[error("Unexpected end to the data stream occurred")]
+    UnexpectedEnd,
+    #[error("Unknown starting byte")]
+    UnknownStartingByte,
+    #[error("An I/O error occurred")]
+    IOError(std::io::Error),
+    #[error("Failed to parse an integer")]
+    IntParseFailure,
+    #[error("Bad bulk string size")]
+    BadBulkStringSize(i64),
+    #[error("Bad array size")]
+    BadArraySize(i64),
+    #[error("Failed to parse input")]
+    ParseError,
+}
+
+impl std::fmt::Debug for RESPError
+{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
+    {
+        writeln!(f, "{self}")?;
+        if let Some(e) = self.source()
+        {
+            writeln!(f, "\tCaused by: {e:?}")?;
+        }
+        Ok(())
+    }
+}
+
 pub enum RedisCommand
 {
     Ping,
@@ -57,18 +91,18 @@ pub enum RedisCommand
 pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
 {
     let Ok((remaining_input, command_value)) = resp_value(input.as_str()) else {
-        return Err("".to_string());
+        return Err(RESPError::ParseError.into());
     };
     let mut command: RedisCommand = RedisCommand::Ping;
 
     // Commands are arrays of bulk strings
     let RESPValue::Array(resp_array) = command_value else {
-        return Err("".to_string());
+        return Err(RESPError::ParseError.into());
     };
 
     // The first (and possibly second) bulk strings form the name of the command
     let RESPValue::BulkString(command_name) = &resp_array[0] else {
-        return Err("".to_string());
+        return Err(RESPError::ParseError.into());
     };
 
     match command_name.as_str()
@@ -78,11 +112,11 @@ pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
         },
         "echo" => {
             let RESPValue::BulkString(message) = &resp_array[1] else {
-                return Err("".to_string());
+                return Err(RESPError::ParseError.into());
             };
             command = RedisCommand::Echo { message: message.clone() };
         },
-        _ => return Err("".to_string()),
+        _ => return Err(RESPError::ParseError.into()),
     }
 
     Ok((
@@ -120,7 +154,7 @@ pub fn resp_value(input: &str) -> IResult<&str, RESPValue>
         // ">" => {},
         // Indicate that parsing could not occur because first character of the string
         // was not recognised.
-        _ => Err(Err::Failure(Error { input: input.clone(), code: ErrorKind::Fail }))
+        _ => Err(Err::Failure(nom::error::Error { input: input.clone(), code: ErrorKind::Fail }))
     }
 }
 

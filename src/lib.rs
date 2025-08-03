@@ -1,3 +1,7 @@
+// The following resource was infinitely helpful when developing the parser:
+// https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
+// I have used much of this code.
+
 use std::io::BufWriter;
 use anyhow::Context;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, WriteHalf};
@@ -20,7 +24,7 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
     // Iterate over every line from the client.
     while let Ok(Some(line)) = lines.next_line().await
     {
-        let Ok((_, command)) = redis_command(line)?;
+        let (_, command) = redis_command(line)?;
 
         match command
         {
