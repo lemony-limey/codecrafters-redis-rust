@@ -2,7 +2,6 @@
 // https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
 // I have used much of this code.
 
-use std::ascii::AsciiExt;
 use std::io::BufWriter;
 use anyhow::Context;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, WriteHalf};
@@ -12,7 +11,7 @@ use crate::parser::{redis_command, RedisCommand};
 pub mod parser;
 
 /// Asynchronously handle an incoming connection.
-pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
+pub async fn handle_connection(stream: &mut TcpStream) -> anyhow::Result<()>
 {
     // Create a separate reader and writer
     let (read_stream, write_stream) = stream.split();
@@ -23,12 +22,13 @@ pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
     // TODO: Need entire input in a buffer or CRLF will split input into mini-lines and
     //      parsing will fail.
     let mut buffer = String::new();
+    println!("hello");
     let _bytes_received = reader.read_to_string(&mut buffer).await?;
+    println!("hello again");
 
     // Iterate over every line from the client.
-    loop
+    while !buffer.is_empty() && !buffer.eq("")
     {
-        let _bytes_received = reader.read_to_string(&mut buffer).await?;
         println!("{buffer}");
         let (remaining_input, command) = redis_command(buffer.clone())?;
 
@@ -64,10 +64,8 @@ pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
         }
 
         buffer = remaining_input;
+        let _bytes_received = reader.read_to_string(&mut buffer).await?;
         println!("buffer now: {}", buffer);
-
-        // Exit from loop if buffer is empty
-        if buffer.is_empty() || buffer.eq_ignore_ascii_case("") { break; }
     }
 
     // Close the output stream
