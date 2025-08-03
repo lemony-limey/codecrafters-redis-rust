@@ -16,10 +16,11 @@ async fn main() -> anyhow::Result<()>
     // The event loop for the server
     loop
     {
-        let (stream, _) = listener.accept().await?;
+        let (mut stream, _) = listener.accept().await?;
 
         tokio::spawn(async move {
-            let result = handle_connection(stream).await.unwrap();
+            let result = handle_connection(&mut stream).await.unwrap();
+            stream.shutdown().await.unwrap();
             println!("{result:#?}");
         });
     }

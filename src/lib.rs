@@ -11,7 +11,7 @@ use crate::parser::{redis_command, RedisCommand};
 pub mod parser;
 
 /// Asynchronously handle an incoming connection.
-pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
+pub async fn handle_connection(mut stream: &mut TcpStream) -> anyhow::Result<()>
 {
     // Create a separate reader and writer
     let (read_stream, write_stream) = stream.split();
