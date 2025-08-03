@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()>
         tokio::spawn(async move {
             let result = handle_connection(&mut stream).await.unwrap();
             stream.shutdown().await.unwrap();
-            println!("{result:#?}");
+            println!("result: {result:#?}");
         });
     }
 }

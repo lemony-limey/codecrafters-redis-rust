@@ -4,6 +4,7 @@
 
 use std::error::Error;
 use std::fmt::Formatter;
+use bytes::{Bytes, BytesMut};
 use nom::{
     bytes::complete::take,
     character::complete::{
@@ -21,6 +22,7 @@ use nom::{
     character::complete::char,
     combinator::map_res,
 };
+use tokio_util::codec::Decoder;
 
 #[derive(Default)]
 pub struct RESPParser;
@@ -69,6 +71,13 @@ pub enum RESPError
     ParseError(&'static str),
 }
 
+impl From<std::io::Error> for RESPError
+{
+    fn from(value: std::io::Error) -> Self {
+        Self::IOError(value)
+    }
+}
+
 impl std::fmt::Debug for RESPError
 {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
@@ -82,6 +91,18 @@ impl std::fmt::Debug for RESPError
     }
 }
 
+impl Decoder for RESPParser
+{
+    type Item = RESPValue;
+    type Error = RESPError;
+
+    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
+    {
+
+        todo!()
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum RedisCommand
 {
@@ -89,9 +110,9 @@ pub enum RedisCommand
     Echo { message: String },
 }
 
-pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
+pub fn redis_command(input: Bytes) -> anyhow::Result<(String, RedisCommand)>
 {
-    let Ok((remaining_input, command_value)) = redis_value(input.as_str()) else {
+    let Ok((remaining_input, command_value)) = redis_value(str::from_utf8(&input)?) else {
         return Err(RESPError::UnknownStartingByte.into());
     };
     let mut command: RedisCommand = RedisCommand::Ping;

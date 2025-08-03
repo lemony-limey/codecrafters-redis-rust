@@ -2,8 +2,9 @@
 // https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
 // I have used much of this code.
 
-use std::io::BufWriter;
+use std::io::{BufWriter, Read};
 use anyhow::Context;
+use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, WriteHalf};
 use tokio::net::TcpStream;
 use crate::parser::{redis_command, RedisCommand};
@@ -21,16 +22,16 @@ pub async fn handle_connection(stream: &mut TcpStream) -> anyhow::Result<()>
     // Parse the input
     // TODO: Need entire input in a buffer or CRLF will split input into mini-lines and
     //      parsing will fail.
-    let mut buffer = String::new();
+    let mut buffer = BytesMut::with_capacity(1024);
     println!("hello");
-    let _bytes_received = reader.read_to_string(&mut buffer).await?;
+    let _bytes_received = reader.read_buf(&mut buffer).await?;
     println!("hello again");
 
     // Iterate over every line from the client.
     while !buffer.is_empty() && !buffer.eq("")
     {
-        println!("{buffer}");
-        let (remaining_input, command) = redis_command(buffer.clone())?;
+        println!("{}", str::from_utf8(&buffer)?);
+        let (remaining_input, command) = redis_command(buffer.clone().into())?;
 
         println!("{command:#?}");
         match command
@@ -63,9 +64,9 @@ pub async fn handle_connection(stream: &mut TcpStream) -> anyhow::Result<()>
             _ => {}
         }
 
-        buffer = remaining_input;
-        let _bytes_received = reader.read_to_string(&mut buffer).await?;
-        println!("buffer now: {}", buffer);
+        buffer = BytesMut::from(remaining_input.as_bytes());
+        let _bytes_received = reader.read_buf(&mut buffer).await?;
+        println!("buffer now: {:#?}", buffer);
     }
 
     // Close the output stream
