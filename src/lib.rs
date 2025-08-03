@@ -15,17 +15,22 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
 {
     // Create a separate reader and writer
     let (read_stream, write_stream) = stream.split();
-    let reader = BufReader::new(read_stream);
+    let mut reader = BufReader::new(read_stream);
     let mut writer = tokio::io::BufWriter::new(write_stream);
 
     // Parse the input
-    let mut lines = reader.lines();
+    // TODO: Need entire input in a buffer or CRLF will split input into mini-lines and
+    //      parsing will fail.
+    let mut buffer = String::new();
+    let bytes_received = reader.read_to_string().await?;
 
     // Iterate over every line from the client.
-    while let Ok(Some(line)) = lines.next_line().await
+    while !buffer.is_empty()
     {
-        let (_, command) = redis_command(line)?;
+        println!("{buffer}");
+        let (_, command) = redis_command(buffer.clone())?;
 
+        println!("{command:#?}");
         match command
         {
             RedisCommand::Ping => {

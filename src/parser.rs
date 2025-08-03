@@ -36,9 +36,9 @@ pub enum RESPValue
     Integer(i64),              // :
     BulkString(String),       // $
     Array(Vec<RESPValue>), // *
-                     //    so, and empty array is *0\r\n
+    //    so, and empty array is *0\r\n
     Null,            // _\r\n  -or-  *-1\r\n for a null array
-                     //    so, and empty array is *0\r\n
+    //    so, and empty array is *0\r\n
     Boolean,         // #  #<t|f>\r\n
     Double,          // ,
     BigNumber,       // (
@@ -82,53 +82,66 @@ impl std::fmt::Debug for RESPError
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum RedisCommand
 {
     Ping,
     Echo { message: String },
 }
 
-pub fn redis_command(input: String) -> anyhow::Result<(String, RedisCommand)>
+struct BufSplit(usize, usize);
+
+enum RedisBufSplit
 {
-    let Ok((remaining_input, command_value)) = resp_value(input.as_str()) else {
-        return Err(RESPError::ParseError.into());
-    };
-    let mut command: RedisCommand = RedisCommand::Ping;
-
-    // Commands are arrays of bulk strings
-    let RESPValue::Array(resp_array) = command_value else {
-        return Err(RESPError::ParseError.into());
-    };
-
-    // The first (and possibly second) bulk strings form the name of the command
-    let RESPValue::BulkString(command_name) = &resp_array[0] else {
-        return Err(RESPError::ParseError.into());
-    };
-
-    match command_name.as_str()
-    {
-        "ping" => {
-            command = RedisCommand::Ping;
-        },
-        "echo" => {
-            let RESPValue::BulkString(message) = &resp_array[1] else {
-                return Err(RESPError::ParseError.into());
-            };
-            command = RedisCommand::Echo { message: message.clone() };
-        },
-        _ => return Err(RESPError::ParseError.into()),
-    }
-
-    Ok((
-        remaining_input.to_string(),
-        command,
-    ))
+    String(BufSplit),
+    Error(BufSplit),
+    Int(i64),
+    Array(Vec<RedisBufSplit>),
+    NullArray,
+    NullBulkString,
 }
+
+type RedisResult = IResult<Option<(usize, RedisBufSplit)>, RESPError>;
+
+// pub fn redis_command(input: BufSplit) -> anyhow::Result<(usize, RedisCommand)>
+// {
+//     let Ok((remaining_input, command_value)) = resp_value(input.as_str()).map_err()?;
+//     let mut command: RedisCommand = RedisCommand::Ping;
+//
+//     // Commands are arrays of bulk strings
+//     let RESPValue::Array(resp_array) = command_value else {
+//         return Err(RESPError::ParseError.into());
+//     };
+//
+//     // The first (and possibly second) bulk strings form the name of the command
+//     let RESPValue::BulkString(command_name) = &resp_array[0] else {
+//         return Err(RESPError::ParseError.into());
+//     };
+//
+//     match command_name.as_str()
+//     {
+//         "ping" => {
+//             command = RedisCommand::Ping;
+//         },
+//         "echo" => {
+//             let RESPValue::BulkString(message) = &resp_array[1] else {
+//                 return Err(RESPError::ParseError.into());
+//             };
+//             command = RedisCommand::Echo { message: message.clone() };
+//         },
+//         _ => return Err(RESPError::ParseError.into()),
+//     }
+//
+//     Ok((
+//         remaining_input.to_string(),
+//         command,
+//     ))
+// }
 
 /// Checks the first non-whitespace character and attempts to parse an instance
 /// of the RESP data type associated with that character (e.g., if the first
 /// character of the input string is a '+', we know to look for a simple string).
-pub fn resp_value(input: &str) -> IResult<&str, RESPValue>
+pub fn redis_value(input: BufSplit) -> IResult<&str, RESPValue>
 {
     // Get the first character of the current string
     let (remaining_input, data_type) = peek(take(1usize)).parse(input)?;
@@ -168,7 +181,7 @@ fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
     let (remaining_input, simple_string) = not_line_ending(remaining_input)?;
     // Consume the crlf
     let (remaining_input, _) = crlf(remaining_input)?;
-    
+
     Ok((
         remaining_input,
         RESPValue::SimpleString(simple_string.to_owned()),
@@ -250,7 +263,7 @@ fn resp_array(input: &str) -> IResult<&str, RESPValue>
     let mut remaining_input = remaining_input;
     for i in 0..array_length
     {
-        let (current_remaining_input, next_entry) = resp_value(remaining_input)?;
+        let (current_remaining_input, next_entry) = redis_value(remaining_input)?;
         remaining_input = current_remaining_input;
 
         array_contents.push(next_entry);
