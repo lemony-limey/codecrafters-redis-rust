@@ -22,12 +22,12 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
     // TODO: Need entire input in a buffer or CRLF will split input into mini-lines and
     //      parsing will fail.
     let mut buffer = String::new();
-    let bytes_received = reader.read_to_string(&mut buffer).await?;
-    println!("Buffer Initial: {}", buffer);
+    let _bytes_received = reader.read_to_string(&mut buffer).await?;
 
     // Iterate over every line from the client.
     while !buffer.is_empty()
     {
+
         println!("{buffer}");
         let (remaining_input, command) = redis_command(buffer.clone())?;
 
@@ -46,8 +46,10 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
                 writer.flush().await?;
             },
             RedisCommand::Echo { message } => {
-                let response = format!("${}\r\n{}\r\n", message.len(), message.as_str());
+                let response = format!("${}\r\n{}\r\n", message.chars().count(), message);
                 let response = response.as_bytes();
+
+                println!("response: {:#?}", response);
 
                 // Write the contents of the buffer to the stream.
                 writer.write_all(response)
@@ -61,6 +63,7 @@ pub async fn handle_connection(mut stream: TcpStream) -> anyhow::Result<()>
         }
 
         buffer = remaining_input;
+        let _bytes_received = reader.read_to_string(&mut buffer).await?;
         println!("buffer now: {}", buffer);
     }
 
