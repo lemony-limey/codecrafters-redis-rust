@@ -1,7 +1,10 @@
 // The following resources were immensely helpful when writing this parser:
 // https://dpbriggs.ca/blog/Implementing-A-Copyless-Redis-Protocol-in-Rust-With-Parsing-Combinators
 // https://github.com/rust-bakery/nom/blob/main/doc/choosing_a_combinator.md
+// I have used some of the error handling code from "Implementing A Copyless Redis Protocol in
+// Rust with Parsing Combinators" and refactored my RESPValues types to use some of their ones.
 
+use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::Formatter;
 use bytes::{Bytes, BytesMut};
@@ -30,14 +33,14 @@ pub struct RESPParser;
 /// \r\n is the RESP terminator, which ALWAYS separates parts.
 /// Simple strings will never contain a \r or \n, but bulk strings
 /// could have these as binary data.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum RESPValue
 {                              // First character
     SimpleString(String),     // +
     SimpleError(String),      // -
     Integer(i64),              // :
     BulkString(String),       // $
-    Array(Vec<RESPValue>), // *
+    Array(VecDeque<RESPValue>), // *
     //    so, and empty array is *0\r\n
     Null,            // _\r\n  -or-  *-1\r\n for a null array
     //    so, and empty array is *0\r\n
@@ -58,7 +61,7 @@ pub enum RESPError
     #[error("Unexpected end to the data stream occurred")]
     UnexpectedEnd,
     #[error("Unknown starting byte")]
-    UnknownStartingByte,
+    UnknownStartingByte(String),
     #[error("An I/O error occurred")]
     IOError(std::io::Error),
     #[error("Failed to parse an integer")]
@@ -68,7 +71,7 @@ pub enum RESPError
     #[error("Bad array size")]
     BadArraySize(i64),
     #[error("Failed to parse input")]
-    ParseError(&'static str),
+    ParseError(String),
 }
 
 impl From<std::io::Error> for RESPError
@@ -87,6 +90,12 @@ impl std::fmt::Debug for RESPError
         {
             writeln!(f, "\tCaused by: {e:?}")?;
         }
+        match self
+        {
+            RESPError::UnknownStartingByte(error_string)
+                | RESPError::ParseError(error_string) => writeln!(f, "{}", error_string)?,
+            _ => {}
+        }
         Ok(())
     }
 }
@@ -96,9 +105,8 @@ impl Decoder for RESPParser
     type Item = RESPValue;
     type Error = RESPError;
 
-    fn decode(&mut self, src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
+    fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
     {
-
         todo!()
     }
 }
@@ -108,45 +116,97 @@ pub enum RedisCommand
 {
     Ping,
     Echo { message: String },
+    Set { key: String, value: RESPValue, },
+    Get { key: String, },
 }
 
-pub fn redis_command(input: Bytes) -> anyhow::Result<(String, RedisCommand)>
+/// Parse Redis commands from a given input string.
+///
+/// Returns a tuple (x, y), where:
+///     x: The remaining unparsed input
+///     y: A VecDeque containing all parsed commands
+pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<RedisCommand>>)>
 {
-    let Ok((remaining_input, command_value)) = redis_value(str::from_utf8(&input)?) else {
-        return Err(RESPError::UnknownStartingByte.into());
+    println!("input: {}", str::from_utf8(&input)?);
+
+    // Everything should be contained within a RESP array
+    let result = redis_value(str::from_utf8(&input)?);
+    let Ok((remaining_input, command_value)) = result else {
+        return Err(RESPError::UnknownStartingByte(
+            format!(
+                "redis_commands(): could not parse array of commands: {:#?}, due to {:#?}",
+                input,
+                result,
+            )
+        ).into());
     };
-    let mut command: RedisCommand = RedisCommand::Ping;
+    let mut parsed_commands: VecDeque<RedisCommand> = VecDeque::new();
 
     // Commands are arrays of bulk strings
-    let RESPValue::Array(resp_array) = command_value else {
+    let RESPValue::Array(mut resp_array) = command_value else {
         println!("Failed to parse whole command");
-        return Err(RESPError::ParseError("dodgy array").into());
+        return Err(RESPError::ParseError(
+            format!("redis_commands(): dodgy array: {:#?}", command_value)
+        ).into());
     };
 
-    // The first (and possibly second) bulk strings form the name of the command
-    let RESPValue::BulkString(command_name) = &resp_array[0] else {
-        println!("Failed to get command name");
-        return Err(RESPError::ParseError("dodgy bulk string").into());
-    };
-
-    match command_name.to_lowercase().as_str()
+    // Loop here and get as many commands as possible.
+    // We are currently assuming here that command names are only one word.
+    while let Some(front_of_queue) = resp_array.pop_front()
     {
-        "ping" => {
-            command = RedisCommand::Ping;
-        },
-        "echo" => {
-            let RESPValue::BulkString(message) = &resp_array[1] else {
-                return Err(RESPError::ParseError("").into());
-            };
-            command = RedisCommand::Echo { message: message.clone() };
-        },
-        _ => return Err(RESPError::ParseError("").into()),
+        // A command name is always encoded as a bulk string
+        let RESPValue::BulkString(command_name) = front_of_queue else {
+            println!("Failed to get command name");
+            return Err(
+                RESPError::ParseError(
+                    format!("redis_commands(): dodgy bulk string: {:#?}", front_of_queue)
+                ).into()
+            );
+        };
+
+        println!("command name: {}", command_name);
+
+        // Attempt to match the bulk string to the name of a valid command
+        let current_command: RedisCommand;
+        match command_name.to_lowercase().as_str()
+        {
+            "ping" => {
+                current_command = RedisCommand::Ping;
+            },
+            "echo" => {
+                let front_of_queue = resp_array.pop_front();
+                let Some(RESPValue::BulkString(message)) = front_of_queue else {
+                    return Err(RESPError::ParseError(
+                        format!(
+                            "redis_commands(): echo: failed to parse argument {:#?}",
+                            front_of_queue
+                        )
+                    ).into());
+                };
+                current_command = RedisCommand::Echo { message: message.clone() };
+            },
+            _ => break,
+        }
+
+        // Append the new entry to the back of the command queue
+        parsed_commands.push_back(current_command);
     }
 
-    Ok((
-        remaining_input.to_string(),
-        command,
-    ))
+    // If no commands were parsed, parsed_commands should be None as opposed to an empty VecDeque
+    if parsed_commands.is_empty()
+    {
+        Ok((
+            remaining_input.to_string(),
+            None
+        ))
+    }
+    else
+    {
+        Ok((
+            remaining_input.to_string(),
+            Some(parsed_commands),
+        ))
+    }
 }
 
 /// Checks the first non-whitespace character and attempts to parse an instance
@@ -180,7 +240,7 @@ pub fn redis_value(input: &str) -> IResult<&str, RESPValue>
         // ">" => {},
         // Indicate that parsing could not occur because first character of the string
         // was not recognised.
-        _ => Err(Err::Failure(nom::error::Error { input: input.clone(), code: ErrorKind::Fail }))
+        _ => Err(Err::Failure(nom::error::Error { input, code: ErrorKind::Fail }))
     }
 }
 
@@ -282,15 +342,15 @@ fn resp_array(input: &str) -> IResult<&str, RESPValue>
     let (remaining_input, _) = crlf(remaining_input)?;
 
     // Get the contents of the array
-    let mut array_contents: Vec<RESPValue> = Vec::with_capacity(array_length as usize);
+    let mut array_contents: VecDeque<RESPValue> = VecDeque::with_capacity(array_length as usize);
 
     let mut remaining_input = remaining_input;
-    for i in 0..array_length
+    for _ in 0..array_length
     {
         let (current_remaining_input, next_entry) = redis_value(remaining_input)?;
         remaining_input = current_remaining_input;
 
-        array_contents.push(next_entry);
+        array_contents.push_back(next_entry);
     }
 
     println!("resp array result: ({}, {:#?})", remaining_input, array_contents);
