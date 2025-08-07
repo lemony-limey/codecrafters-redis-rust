@@ -18,7 +18,7 @@ type Database = Arc<Mutex<HashMap<String, Bytes>>>;
 /// where they will then be executed in the order that they were received.
 pub async fn handle_connection(
     stream: &mut TcpStream,
-    _database: Database,
+    database: Database,
 ) -> anyhow::Result<()>
 {
     // Create a separate reader and writer

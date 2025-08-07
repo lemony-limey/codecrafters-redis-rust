@@ -100,16 +100,17 @@ impl std::fmt::Debug for RESPError
     }
 }
 
-impl Decoder for RESPParser
-{
-    type Item = RESPValue;
-    type Error = RESPError;
-
-    fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
-    {
-        todo!()
-    }
-}
+// TODO: Implement tokio Decode
+// impl Decoder for RESPParser
+// {
+//     type Item = RESPValue;
+//     type Error = RESPError;
+//
+//     fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
+//     {
+//         todo!()
+//     }
+// }
 
 #[derive(Debug, Clone)]
 pub enum RedisCommand
