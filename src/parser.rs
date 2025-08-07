@@ -4,7 +4,7 @@
 // I have used some of the error handling code from "Implementing A Copyless Redis Protocol in
 // Rust with Parsing Combinators" and refactored my RESPValues types to use some of their ones.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::error::Error;
 use std::fmt::Formatter;
 use bytes::{Bytes, BytesMut};
@@ -43,6 +43,7 @@ pub enum RESPValue
     Array(VecDeque<RESPValue>), // *
     //    so, and empty array is *0\r\n
     Null,            // _\r\n  -or-  *-1\r\n for a null array
+    NullBulkString,  // $-1\r\n
     //    so, and empty array is *0\r\n
     Boolean,         // #  #<t|f>\r\n
     Double,          // ,
@@ -54,6 +55,7 @@ pub enum RESPValue
     Set,             // ~
     Push,            // >
 }
+
 
 #[derive(thiserror::Error)]
 pub enum RESPError
@@ -251,11 +253,11 @@ fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
 {
     println!("resp_string: {}", input);
     // Consume a '+'
-    let (remaining_input, _) = char('+')(input)?;
+    let (remaining_input, _parsed_char) = char('+')(input)?;
     // Get the string
     let (remaining_input, simple_string) = not_line_ending(remaining_input)?;
     // Consume the crlf
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     println!("resp string result: ({}, {})", remaining_input, simple_string);
 
@@ -271,11 +273,11 @@ fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
 fn resp_simple_error(input: &str) -> IResult<&str, RESPValue>
 {
     // Consume a '-'
-    let (remaining_input, _) = char('-')(input)?;
+    let (remaining_input, _parsed_char) = char('-')(input)?;
     // Get the inner string
     let (remaining_input, simple_error) = not_line_ending(remaining_input)?;
     // Consume the crlf
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     Ok((
         remaining_input,
@@ -287,13 +289,13 @@ fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 {
     println!("resp_integer: {}", input);
     // Consume a ':'
-    let (remaining_input, _) = char(':')(input)?;
+    let (remaining_input, _parsed_char) = char(':')(input)?;
 
     // Get the integer value
     let (remaining_input, integer_value) = parse_i64(remaining_input)?;
 
     // Consume the crlf
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     println!("resp int result: ({}, {})", remaining_input, integer_value);
 
@@ -307,19 +309,19 @@ fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 {
     // println!("bulk_string: {}", input);
     // Consume a '$'
-    let (remaining_input, _) = char('$')(input)?;
+    let (remaining_input, _parsed_char) = char('$')(input)?;
 
     // Get the length of the bulk string
     let (remaining_input, string_length) = parse_u32(remaining_input)?;
 
     // Consume the first CRLF delimiter
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     // Get the string
     let (remaining_input, inner_string) = take(string_length)(remaining_input)?;
 
     // Consume the second CRLF delimiter
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     println!("bulk string result: ({}, {})", remaining_input, inner_string);
 
@@ -334,13 +336,13 @@ fn resp_array(input: &str) -> IResult<&str, RESPValue>
     // println!("resp_array: {}", input);
 
     // Parse the *
-    let (remaining_input, _) = char('*')(input)?;
+    let (remaining_input, _parsed_char) = char('*')(input)?;
 
     // Get the length of the array
     let (remaining_input, array_length) = parse_u32(remaining_input)?;
 
     // Consume the first CRLF delimiter
-    let (remaining_input, _) = crlf(remaining_input)?;
+    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
 
     // Get the contents of the array
     let mut array_contents: VecDeque<RESPValue> = VecDeque::with_capacity(array_length as usize);
@@ -378,4 +380,5 @@ mod tests
     use super::*;
     use nom::bytes::complete::take;
 
+    // TODO: Testing
 }

@@ -1,16 +1,19 @@
-
-
 use std::collections::HashMap;
+use std::fmt::format;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
-use crate::parser::{redis_commands, RedisCommand};
+use crate::parser::{redis_commands, RESPValue, RedisCommand};
 use anyhow::{anyhow, Context};
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
+use nom::AsBytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
 
 pub mod parser;
 
-type Database = Arc<Mutex<HashMap<String, Bytes>>>;
+const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
+
+type Database = Arc<Mutex<HashMap<String, RESPValue>>>;
 
 /// Asynchronously handle an incoming connection.
 ///
@@ -51,7 +54,10 @@ pub async fn handle_connection(
             {
                 RedisCommand::Ping => ping(&mut writer).await?,
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
-                _ => {}
+                RedisCommand::Set { key, value } => {
+                    set(&mut writer, database.clone(), key, value).await?
+                },
+                RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,
             }
         }
 
@@ -62,7 +68,6 @@ pub async fn handle_connection(
 
     // Close the output stream
     writer.shutdown().await?;
-
     Ok(())
 }
 
@@ -84,7 +89,6 @@ pub async fn ping(
 
     // Ensure the data is written to the stream immediately.
     writer.flush().await?;
-
     Ok(())
 }
 
@@ -106,20 +110,74 @@ pub async fn echo(
 
     // Ensure the data is written to the stream immediately.
     writer.flush().await?;
-
     Ok(())
 }
 
 pub async fn set(
-
+    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
+    database: Database,
+    key: String,
+    value: RESPValue,
 ) -> anyhow::Result<()>
 {
-    todo!()
+    let mut database = database.lock()
+        .expect("set(): could not get mutex lock");
+
+    let _ = database.insert(key, value);
+
+    // Indicate success
+    let response = b"+OK\r\n";
+    writer.write_all(response)
+        .await
+        .with_context(|| "Could not write buffer contents to TCP stream")?;
+
+    // Ensure that the desired output is written to the stream immediately.
+    writer.flush().await?;
+    Ok(())
 }
 
 pub async fn get(
-
+    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
+    database: Database,
+    key: String,
 ) -> anyhow::Result<()>
 {
-    todo!()
+    // If the given key does not exist in the database, return a null bulk string.
+    let database = database.lock()
+        .expect("get(): could not get mutex lock");
+
+    let mut buffer: String = String::new();
+    let response: &[u8];
+
+    if let Some(value) = database.get(&key)
+    {
+        let value = match value {
+            RESPValue::SimpleString(string) => {
+                buffer = format!("+{}\r\n", string);
+            }
+            RESPValue::SimpleError(error) => {
+                buffer = format!("-{}\r\n", error);
+            }
+            RESPValue::Integer(integer) => {
+                buffer = format!(":{}\r\n", integer);
+            }
+            RESPValue::BulkString(string) => {
+                buffer = format!("${}\r\n{}\r\n", string.len(), string);
+            }
+            _ => unimplemented!()
+        };
+
+        response = buffer.as_bytes();
+    }
+    else
+    {
+        response = NULL_BULK_STRING;
+    }
+
+    writer.write_all(response)
+        .await
+        .with_context(|| "")?;
+
+    writer.flush().await?;
+    Ok(())
 }

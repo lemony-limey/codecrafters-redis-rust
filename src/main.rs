@@ -10,18 +10,19 @@ use tokio::{
     net::{TcpListener, TcpStream},
     io::{BufReader, BufWriter},
 };
+use codecrafters_redis::parser::RESPValue;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()>
 {
     let listener = TcpListener::bind("127.0.0.1:6379").await?;
 
-    let database = Arc::new(Mutex::new(HashMap::<String, Bytes>::new()));
+    let database = Arc::new(Mutex::new(HashMap::new()));
 
     // The event loop for the server
     loop
     {
-        let (mut stream, _) = listener.accept().await?;
+        let (mut stream, _addr) = listener.accept().await?;
 
         // Clone a handle to the database that can be passed safely to the new thread
         let database_handle = database.clone();
