@@ -50,6 +50,7 @@ pub async fn handle_connection(
     // Parse the input
     let mut buffer = BytesMut::with_capacity(1024);
     let _bytes_received = reader.read_buf(&mut buffer).await?;
+    println!("just read into buffer: {:#?}", buffer);
 
     // Iterate over every line from the client.
     while !buffer.is_empty() && !buffer.eq("")
@@ -84,8 +85,9 @@ pub async fn handle_connection(
         }
 
         buffer = BytesMut::from(remaining_input.as_bytes());
-        let _bytes_received = reader.read_buf(&mut buffer).await?;
         println!("buffer now: {:#?}", buffer);
+        let _bytes_received = reader.read_buf(&mut buffer).await?;
+        println!("just read into buffer: {:#?}", buffer);
         println!("database now: {:#?}", database.lock().await);
     }
 
