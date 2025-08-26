@@ -16,6 +16,7 @@ use crate::{
         set::parse_set_command,
     },
 };
+use anyhow::anyhow;
 use bytes::Bytes;
 use nom::{
     bytes::complete::take,
@@ -35,7 +36,6 @@ use nom::{
     Parser,
 };
 use std::collections::VecDeque;
-use anyhow::anyhow;
 
 /// Parse Redis commands from a given input string.
 ///
@@ -104,7 +104,7 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
             },
             "set" => {
                 let RedisCommand::Set { key, value, px } = parse_set_command(&mut resp_array)? else {
-                    return Err(anyhow!("redis_commands(): set: did not parse correct command"));
+                    return Err(anyhow!("redis_commands(): set: could not parse command"));
                 };
 
                 current_command = RedisCommand::Set { key, value, px }

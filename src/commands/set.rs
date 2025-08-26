@@ -1,25 +1,23 @@
-use std::collections::VecDeque;
-use anyhow::Context;
-use chrono::{DateTime, Duration, Utc};
-use tokio::io::AsyncWriteExt;
 use crate::{
-    Database,
     parser::resp_value::RESPValue,
+    Database,
 };
-use crate::commands::redis_command::RedisCommand;
-use crate::parser::resp_error::RESPError;
+use anyhow::Context;
+use chrono::{DateTime, Utc};
+use tokio::io::AsyncWriteExt;
 
 pub async fn set(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
     key: String,
     value: RESPValue,
+    px: Option<DateTime<Utc>>,
 ) -> anyhow::Result<()>
 {
     let mut database = database.lock()
         .await;
 
-    let _ = database.insert(key, value);
+    let _ = database.insert(key, (value, px));
 
     // Indicate success
     let response = b"+OK\r\n";
@@ -31,5 +29,3 @@ pub async fn set(
     writer.flush().await?;
     Ok(())
 }
-
-

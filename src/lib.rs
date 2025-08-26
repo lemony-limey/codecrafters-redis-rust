@@ -1,8 +1,6 @@
 mod commands;
 pub mod parser;
 
-use anyhow::anyhow;
-use bytes::BytesMut;
 use crate::{
     commands::{
         echo::echo,
@@ -16,6 +14,9 @@ use crate::{
         resp_value::RESPValue,
     },
 };
+use anyhow::anyhow;
+use bytes::BytesMut;
+use chrono::{DateTime, Utc};
 use std::{
     collections::HashMap,
     sync::Arc,
@@ -28,7 +29,7 @@ use tokio::{
 
 const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
-type Database = Arc<Mutex<HashMap<String, RESPValue>>>;
+type Database = Arc<Mutex<HashMap<String, (RESPValue, Option<DateTime<Utc>>)>>>;
 
 
 /// Asynchronously handle an incoming connection.
@@ -72,7 +73,7 @@ pub async fn handle_connection(
                 RedisCommand::Ping => ping(&mut writer).await?,
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
                 RedisCommand::Set { key, value, px } => {
-                    set(&mut writer, database.clone(), key, value).await?
+                    set(&mut writer, database.clone(), key, value, px).await?
                 },
                 RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,
             }

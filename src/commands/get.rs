@@ -1,8 +1,10 @@
-use anyhow::Context;
-use tokio::io::AsyncWriteExt;
 use crate::{Database, NULL_BULK_STRING};
+use anyhow::Context;
+use chrono::Utc;
+use tokio::io::AsyncWriteExt;
 
-pub async fn get(
+
+pub(crate) async fn get(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
     key: String,
@@ -12,18 +14,22 @@ pub async fn get(
     let database = database.lock()
                            .await;
 
-    let mut buffer: String = String::new();
-    let response: &[u8];
+    let buffer: String;
+    let mut response: &[u8] = NULL_BULK_STRING;
 
-    if let Some(value) = database.get(&key)
+    if let Some((value, expiry)) = database.get(&key)
     {
-        buffer = value.to_resp_encoded_string()
-                      .expect("could not encode RESP value");
-        response = buffer.as_bytes();
-    }
-    else
-    {
-        response = NULL_BULK_STRING;
+        // If value has not expired, return the null bulk string
+        if let Some(expiry) = expiry && *expiry < Utc::now()
+        {
+            // response = NULL_BULK_STRING;
+        }
+        else  // Value has either not expired, or was not assigned an expiry value
+        {
+            buffer = value.to_resp_encoded_string()
+                .expect("could not encode RESP value");
+            response = buffer.as_bytes();
+        }
     }
 
     writer.write_all(response)
