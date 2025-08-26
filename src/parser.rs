@@ -58,7 +58,7 @@ pub enum RESPValue
 
 impl RESPValue
 {
-    pub fn encode(&self) -> Option<String>
+    pub fn to_resp_encoded_string(&self) -> Option<String>
     {
         match self
         {
@@ -211,6 +211,45 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
                 };
                 current_command = RedisCommand::Echo { message: message.clone() };
             },
+            "set" => {
+                // Key
+                let front_of_queue = resp_array.pop_front();
+                let Some(RESPValue::BulkString(key)) = front_of_queue else {
+                    return Err(RESPError::ParseError(
+                        format!(
+                            "redis_commands(): echo: failed to parse argument {:#?}",
+                            front_of_queue
+                        )
+                    ).into());
+                };
+
+                // Value
+                let front_of_queue = resp_array.pop_front();
+                let Some(value) = front_of_queue else {
+                    return Err(RESPError::ParseError(
+                        format!(
+                            "redis_commands(): echo: failed to parse argument {:#?}",
+                            front_of_queue
+                        )
+                    ).into());
+                };
+
+                current_command = RedisCommand::Set { key, value }
+            },
+            "get" => {
+                // Key
+                let front_of_queue = resp_array.pop_front();
+                let Some(RESPValue::BulkString(key)) = front_of_queue else {
+                    return Err(RESPError::ParseError(
+                        format!(
+                            "redis_commands(): echo: failed to parse argument {:#?}",
+                            front_of_queue
+                        )
+                    ).into());
+                };
+
+                current_command = RedisCommand::Get { key }
+            }
             _ => break,
         }
 

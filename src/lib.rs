@@ -14,7 +14,7 @@ pub mod parser;
 
 const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
-type Database = Arc<Mutex<HashMap<String, String>>>;
+type Database = Arc<Mutex<HashMap<String, RESPValue>>>;
 
 
 /// Asynchronously handle an incoming connection.
@@ -43,6 +43,7 @@ pub async fn handle_connection(
         // Parse as many commands from the input as possible.
         let (remaining_input, commands) = redis_commands(buffer.clone().into())?;
         // If no commands could be parsed, return an error.
+        println!("{commands:#?}");
         let Some(commands) = commands else {
             return Err(anyhow!("Incomplete input, cannot parse commands"));
         };
@@ -66,6 +67,10 @@ pub async fn handle_connection(
         buffer = BytesMut::from(remaining_input.as_bytes());
         let _bytes_received = reader.read_buf(&mut buffer).await?;
         println!("buffer now: {:#?}", buffer);
+
+        {
+            println!("database now: {:#?}", database.lock().await);
+        }
     }
 
     // Close the output stream
@@ -128,7 +133,7 @@ pub async fn set(
     let mut database = database.lock()
         .await;
 
-    let _ = database.insert(key, value.encode().expect("could not encode RESP value"));
+    let _ = database.insert(key, value);
 
     // Indicate success
     let response = b"+OK\r\n";
@@ -157,6 +162,8 @@ pub async fn get(
 
     if let Some(value) = database.get(&key)
     {
+        buffer = value.to_resp_encoded_string()
+            .expect("could not encode RESP value");
         response = buffer.as_bytes();
     }
     else
