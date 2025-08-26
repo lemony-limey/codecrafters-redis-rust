@@ -1,28 +1,16 @@
-#![allow(unused_imports)]
-
-use anyhow::{bail, Context};
-use bytes::Bytes;
-use codecrafters_redis::{
-    handle_connection,
-    parser::resp_value::RESPValue,
-};
+use codecrafters_redis::handle_connection;
 use std::{
     collections::HashMap,
     sync::Arc,
 };
 use tokio::{
-    io::{
-        AsyncBufRead,
-        AsyncBufReadExt,
-        AsyncRead,
-        AsyncReadExt,
-        AsyncWriteExt
-    },
-    net::{TcpListener, TcpStream},
-    io::{BufReader, BufWriter},
+    io::AsyncWriteExt,
+    net::TcpListener,
     sync::Mutex,
 };
 
+
+/// The entry point for the database program.
 #[tokio::main]
 async fn main() -> anyhow::Result<()>
 {
