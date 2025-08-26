@@ -1,5 +1,5 @@
-pub mod parser;
 mod commands;
+pub mod parser;
 
 use anyhow::anyhow;
 use bytes::BytesMut;
@@ -8,12 +8,12 @@ use crate::{
         echo::echo,
         get::get,
         ping::ping,
+        redis_command::RedisCommand,
         set::set,
     },
     parser::{
         redis_commands,
         resp_value::RESPValue,
-        redis_command::RedisCommand,
     },
 };
 use std::{
@@ -71,7 +71,7 @@ pub async fn handle_connection(
             {
                 RedisCommand::Ping => ping(&mut writer).await?,
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
-                RedisCommand::Set { key, value } => {
+                RedisCommand::Set { key, value, px } => {
                     set(&mut writer, database.clone(), key, value).await?
                 },
                 RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,

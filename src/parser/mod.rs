@@ -4,38 +4,38 @@
 // I have used some of the error handling code from "Implementing A Copyless Redis Protocol in
 // Rust with Parsing Combinators" and refactored my RESPValues types to use some of their ones.
 
-pub mod redis_command;
 pub mod resp_error;
 pub mod resp_value;
+mod set;
 
-
-use bytes::Bytes;
 use crate::{
+    commands::redis_command::RedisCommand,
     parser::{
-        redis_command::RedisCommand,
         resp_error::RESPError,
         resp_value::RESPValue,
-    }
+        set::parse_set_command,
+    },
 };
+use bytes::Bytes;
 use nom::{
     bytes::complete::take,
-    character::complete::char,
     character::complete::{
+        char,
         crlf,
         digit1,
         not_line_ending,
     },
-    combinator::map_res,
-    combinator::peek,
+    combinator::{
+        map_res,
+        peek
+    },
     error::ErrorKind,
     Err,
     IResult,
     Parser,
 };
-use std::{
-    collections::VecDeque,
-};
-
+use std::collections::VecDeque;
+use anyhow::anyhow;
 
 /// Parse Redis commands from a given input string.
 ///
@@ -49,22 +49,22 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
     // Everything should be contained within a RESP array
     let result = redis_value(str::from_utf8(&input)?);
     let Ok((remaining_input, command_value)) = result else {
-        return Err(RESPError::UnknownStartingByte(
+        return Err(anyhow!(RESPError::UnknownStartingByte(
             format!(
                 "redis_commands(): could not parse array of commands: {:#?}, due to {:#?}",
                 input,
                 result,
             )
-        ).into());
+        )));
     };
     let mut parsed_commands: VecDeque<RedisCommand> = VecDeque::new();
 
     // Commands are arrays of bulk strings
     let RESPValue::Array(mut resp_array) = command_value else {
         println!("Failed to parse whole command");
-        return Err(RESPError::ParseError(
+        return Err(anyhow!(RESPError::ParseError(
             format!("redis_commands(): dodgy array: {:#?}", command_value)
-        ).into());
+        )));
     };
 
     // Loop here and get as many commands as possible.
@@ -74,11 +74,11 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
         // A command name is always encoded as a bulk string
         let RESPValue::BulkString(command_name) = front_of_queue else {
             println!("Failed to get command name");
-            return Err(
+            return Err(anyhow!(
                 RESPError::ParseError(
                     format!("redis_commands(): dodgy bulk string: {:#?}", front_of_queue)
-                ).into()
-            );
+                )
+            ));
         };
 
         println!("command name: {}", command_name);
@@ -88,55 +88,37 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
         match command_name.to_lowercase().as_str()
         {
             "ping" => {
-                current_command = RedisCommand::Ping;
+                current_command = RedisCommand::Ping
             },
             "echo" => {
                 let front_of_queue = resp_array.pop_front();
                 let Some(RESPValue::BulkString(message)) = front_of_queue else {
-                    return Err(RESPError::ParseError(
+                    return Err(anyhow!(RESPError::ParseError(
                         format!(
                             "redis_commands(): echo: failed to parse argument {:#?}",
                             front_of_queue
                         )
-                    ).into());
+                    )));
                 };
-                current_command = RedisCommand::Echo { message: message.clone() };
+                current_command = RedisCommand::Echo { message: message.clone() }
             },
             "set" => {
-                // Key
-                let front_of_queue = resp_array.pop_front();
-                let Some(RESPValue::BulkString(key)) = front_of_queue else {
-                    return Err(RESPError::ParseError(
-                        format!(
-                            "redis_commands(): echo: failed to parse argument {:#?}",
-                            front_of_queue
-                        )
-                    ).into());
+                let RedisCommand::Set { key, value, px } = parse_set_command(&mut resp_array)? else {
+                    return Err(anyhow!("redis_commands(): set: did not parse correct command"));
                 };
 
-                // Value
-                let front_of_queue = resp_array.pop_front();
-                let Some(value) = front_of_queue else {
-                    return Err(RESPError::ParseError(
-                        format!(
-                            "redis_commands(): echo: failed to parse argument {:#?}",
-                            front_of_queue
-                        )
-                    ).into());
-                };
-
-                current_command = RedisCommand::Set { key, value }
+                current_command = RedisCommand::Set { key, value, px }
             },
             "get" => {
                 // Key
                 let front_of_queue = resp_array.pop_front();
                 let Some(RESPValue::BulkString(key)) = front_of_queue else {
-                    return Err(RESPError::ParseError(
+                    return Err(anyhow!(RESPError::ParseError(
                         format!(
-                            "redis_commands(): echo: failed to parse argument {:#?}",
+                            "redis_commands(): get: failed to parse argument {:#?}",
                             front_of_queue
                         )
-                    ).into());
+                    )));
                 };
 
                 current_command = RedisCommand::Get { key }
