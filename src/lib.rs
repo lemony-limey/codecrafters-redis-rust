@@ -1,16 +1,30 @@
-use std::collections::HashMap;
-use std::fmt::format;
-use std::io::Write;
-use std::sync::{Arc, MutexGuard};
-use crate::parser::{redis_commands, RESPValue, RedisCommand};
-use anyhow::{anyhow, Context};
-use bytes::{BufMut, Bytes, BytesMut};
-use nom::AsBytes;
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::TcpStream;
-use tokio::sync::Mutex;
-
 pub mod parser;
+mod commands;
+
+use anyhow::anyhow;
+use bytes::BytesMut;
+use crate::{
+    commands::{
+        echo::echo,
+        get::get,
+        ping::ping,
+        set::set,
+    },
+    parser::{
+        redis_commands,
+        resp_value::RESPValue,
+        redis_command::RedisCommand,
+    },
+};
+use std::{
+    collections::HashMap,
+    sync::Arc,
+};
+use tokio::{
+    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    net::TcpStream,
+    sync::Mutex,
+};
 
 const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
@@ -75,106 +89,5 @@ pub async fn handle_connection(
 
     // Close the output stream
     writer.shutdown().await?;
-    Ok(())
-}
-
-
-/// Handler for the PING command.
-///
-/// Sends the byte string "+PONG\r\n" in response whenever a PING is received.
-///
-///
-pub async fn ping(
-    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
-) -> anyhow::Result<()>
-{
-    let buffer = b"+PONG\r\n";
-
-    // Write the contents of the buffer to the stream.
-    writer.write_all(buffer)
-          .await
-          .with_context(|| "Could not write buffer contents to TCP stream")?;
-
-    // Ensure the data is written to the stream immediately.
-    writer.flush().await?;
-    Ok(())
-}
-
-
-/// Handler for the ECHO command.
-pub async fn echo(
-    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
-    message: String,
-) -> anyhow::Result<()>
-{
-    let response = format!("${}\r\n{}\r\n", message.chars().count(), message);
-    let response = response.as_bytes();
-
-    println!("response: {:#?}", response);
-
-    // Write the contents of the buffer to the stream.
-    writer.write_all(response)
-          .await
-          .with_context(|| "Could not write buffer contents to TCP stream")?;
-
-    // Ensure the data is written to the stream immediately.
-    writer.flush().await?;
-    Ok(())
-}
-
-
-pub async fn set(
-    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
-    database: Database,
-    key: String,
-    value: RESPValue,
-) -> anyhow::Result<()>
-{
-    let mut database = database.lock()
-        .await;
-
-    let _ = database.insert(key, value);
-
-    // Indicate success
-    let response = b"+OK\r\n";
-    writer.write_all(response)
-        .await
-        .with_context(|| "Could not write buffer contents to TCP stream")?;
-
-    // Ensure that the desired output is written to the stream immediately.
-    writer.flush().await?;
-    Ok(())
-}
-
-
-pub async fn get(
-    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
-    database: Database,
-    key: String,
-) -> anyhow::Result<()>
-{
-    // If the given key does not exist in the database, return a null bulk string.
-    let database = database.lock()
-        .await;
-
-    let mut buffer: String = String::new();
-    let response: &[u8];
-
-    if let Some(value) = database.get(&key)
-    {
-        buffer = value.to_resp_encoded_string()
-            .expect("could not encode RESP value");
-        response = buffer.as_bytes();
-    }
-    else
-    {
-        response = NULL_BULK_STRING;
-    }
-
-    writer.write_all(response)
-        .await
-        .with_context(|| "")?;
-
-    writer.flush().await?;
     Ok(())
 }

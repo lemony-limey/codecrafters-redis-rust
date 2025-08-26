@@ -4,147 +4,38 @@
 // I have used some of the error handling code from "Implementing A Copyless Redis Protocol in
 // Rust with Parsing Combinators" and refactored my RESPValues types to use some of their ones.
 
-use std::collections::{HashMap, VecDeque};
-use std::error::Error;
-use std::fmt::Formatter;
-use bytes::{Bytes, BytesMut};
+pub mod redis_command;
+pub mod resp_error;
+pub mod resp_value;
+
+
+use bytes::Bytes;
+use crate::{
+    parser::{
+        redis_command::RedisCommand,
+        resp_error::RESPError,
+        resp_value::RESPValue,
+    }
+};
 use nom::{
     bytes::complete::take,
+    character::complete::char,
     character::complete::{
         crlf,
         digit1,
         not_line_ending,
     },
+    combinator::map_res,
     combinator::peek,
-    error::{
-        ErrorKind,
-    },
+    error::ErrorKind,
     Err,
     IResult,
     Parser,
-    character::complete::char,
-    combinator::map_res,
 };
-use tokio_util::codec::Decoder;
+use std::{
+    collections::VecDeque,
+};
 
-#[derive(Default)]
-pub struct RESPParser;
-
-/// \r\n is the RESP terminator, which ALWAYS separates parts.
-/// Simple strings will never contain a \r or \n, but bulk strings
-/// could have these as binary data.
-#[derive(Debug, Clone)]
-pub enum RESPValue
-{                              // First character
-    SimpleString(String),     // +
-    SimpleError(String),      // -
-    Integer(i64),              // :
-    BulkString(String),       // $
-    Array(VecDeque<RESPValue>), // *
-    //    so, and empty array is *0\r\n
-    Null,            // _\r\n  -or-  *-1\r\n for a null array
-    NullBulkString,  // $-1\r\n
-    //    so, and empty array is *0\r\n
-    Boolean,         // #  #<t|f>\r\n
-    Double,          // ,
-    BigNumber,       // (
-    BulkError,       // !
-    VerbatimString,  // =
-    Map,             // %
-    Attribute,       // |
-    Set,             // ~
-    Push,            // >
-}
-
-impl RESPValue
-{
-    pub fn to_resp_encoded_string(&self) -> Option<String>
-    {
-        match self
-        {
-            RESPValue::SimpleString(string) => {
-                format!("+{}\r\n", string).into()
-            }
-            RESPValue::SimpleError(error) => {
-                format!("-{}\r\n", error).into()
-            }
-            RESPValue::Integer(integer) => {
-                format!(":{}\r\n", integer).into()
-            }
-            RESPValue::BulkString(string) => {
-                format!("${}\r\n{}\r\n", string.len(), string).into()
-            }
-            _ => None
-        }
-    }
-}
-
-
-#[derive(thiserror::Error)]
-pub enum RESPError
-{
-    #[error("Unexpected end to the data stream occurred")]
-    UnexpectedEnd,
-    #[error("Unknown starting byte")]
-    UnknownStartingByte(String),
-    #[error("An I/O error occurred")]
-    IOError(std::io::Error),
-    #[error("Failed to parse an integer")]
-    IntParseFailure,
-    #[error("Bad bulk string size")]
-    BadBulkStringSize(i64),
-    #[error("Bad array size")]
-    BadArraySize(i64),
-    #[error("Failed to parse input")]
-    ParseError(String),
-}
-
-impl From<std::io::Error> for RESPError
-{
-    fn from(value: std::io::Error) -> Self {
-        Self::IOError(value)
-    }
-}
-
-impl std::fmt::Debug for RESPError
-{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result
-    {
-        writeln!(f, "{self}")?;
-        if let Some(e) = self.source()
-        {
-            writeln!(f, "\tCaused by: {e:?}")?;
-        }
-        match self
-        {
-            RESPError::UnknownStartingByte(error_string)
-                | RESPError::ParseError(error_string) => writeln!(f, "{}", error_string)?,
-            _ => {}
-        }
-        Ok(())
-    }
-}
-
-// TODO: Implement tokio Decode
-// impl Decoder for RESPParser
-// {
-//     type Item = RESPValue;
-//     type Error = RESPError;
-//
-//     fn decode(&mut self, _src: &mut BytesMut) -> Result<Option<Self::Item>, Self::Error>
-//     {
-//         todo!()
-//     }
-// }
-
-#[derive(Debug, Clone)]
-pub enum RedisCommand
-{
-    Ping,
-    Echo { message: String },
-    Set { key: String, value: RESPValue, },
-    Get { key: String, },
-}
 
 /// Parse Redis commands from a given input string.
 ///
@@ -439,8 +330,5 @@ fn parse_u32(input: &str) -> IResult<&str, u32>
 #[cfg(test)]
 mod tests
 {
-    use super::*;
-    use nom::bytes::complete::take;
-
     // TODO: Testing
 }
