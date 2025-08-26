@@ -12,7 +12,14 @@ use crate::{
     commands::redis_command::RedisCommand,
     parser::{
         resp_error::RESPError,
-        resp_value::RESPValue,
+        resp_value::{
+            resp_array,
+            resp_bulk_string,
+            resp_integer,
+            resp_simple_error,
+            resp_simple_string,
+            RESPValue,
+        },
         set::parse_set_command,
     },
 };
@@ -20,22 +27,14 @@ use anyhow::anyhow;
 use bytes::Bytes;
 use nom::{
     bytes::complete::take,
-    character::complete::{
-        char,
-        crlf,
-        digit1,
-        not_line_ending,
-    },
-    combinator::{
-        map_res,
-        peek
-    },
+    combinator::peek,
     error::ErrorKind,
     Err,
     IResult,
     Parser,
 };
 use std::collections::VecDeque;
+
 
 /// Parse Redis commands from a given input string.
 ///
@@ -74,11 +73,7 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
         // A command name is always encoded as a bulk string
         let RESPValue::BulkString(command_name) = front_of_queue else {
             println!("Failed to get command name");
-            return Err(anyhow!(
-                RESPError::ParseError(
-                    format!("redis_commands(): dodgy bulk string: {:#?}", front_of_queue)
-                )
-            ));
+            return Err(anyhow!("redis_commands(): dodgy bulk string: {:#?}", front_of_queue));
         };
 
         println!("command name: {}", command_name);
@@ -87,20 +82,52 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
         let current_command: RedisCommand;
         match command_name.to_lowercase().as_str()
         {
-            "ping" => {
-                current_command = RedisCommand::Ping
-            },
             "echo" => {
                 let front_of_queue = resp_array.pop_front();
                 let Some(RESPValue::BulkString(message)) = front_of_queue else {
-                    return Err(anyhow!(RESPError::ParseError(
-                        format!(
-                            "redis_commands(): echo: failed to parse argument {:#?}",
-                            front_of_queue
-                        )
-                    )));
+                    return Err(anyhow!(
+                        "redis_commands(): echo: failed to parse argument {:#?}",
+                        front_of_queue
+                    ));
                 };
+
                 current_command = RedisCommand::Echo { message: message.clone() }
+            },
+            "get" => {
+                // Key
+                let front_of_queue = resp_array.pop_front();
+                let Some(RESPValue::BulkString(key)) = front_of_queue else {
+                    return Err(anyhow!(
+                        "redis_commands(): get: failed to parse argument {:#?}",
+                        front_of_queue
+                    ));
+                };
+
+                current_command = RedisCommand::Get { key }
+            }
+            "ping" => {
+                current_command = RedisCommand::Ping
+            },
+            "rpush" => {
+                // Key
+                let front_of_queue = resp_array.pop_front();
+                let Some(RESPValue::BulkString(key)) = front_of_queue else {
+                    return Err(anyhow!(
+                        "redis_commands(): rpush: failed to parse argument {:#?}",
+                        front_of_queue
+                    ));
+                };
+
+                // Value
+                let front_of_queue = resp_array.pop_front();
+                let Some(value) = front_of_queue else {
+                    return Err(anyhow!(
+                        "redis_commands(): rpush: failed to parse argument {:#?}",
+                        front_of_queue
+                    ));
+                };
+
+                current_command = RedisCommand::RPush { key, value }
             },
             "set" => {
                 let RedisCommand::Set { key, value, px } = parse_set_command(&mut resp_array)? else {
@@ -109,20 +136,6 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
 
                 current_command = RedisCommand::Set { key, value, px }
             },
-            "get" => {
-                // Key
-                let front_of_queue = resp_array.pop_front();
-                let Some(RESPValue::BulkString(key)) = front_of_queue else {
-                    return Err(anyhow!(RESPError::ParseError(
-                        format!(
-                            "redis_commands(): get: failed to parse argument {:#?}",
-                            front_of_queue
-                        )
-                    )));
-                };
-
-                current_command = RedisCommand::Get { key }
-            }
             _ => break,
         }
 
@@ -146,6 +159,7 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
         ))
     }
 }
+
 
 /// Checks the first non-whitespace character and attempts to parse an instance
 /// of the RESP data type associated with that character (e.g., if the first
@@ -180,137 +194,4 @@ pub fn redis_value(input: &str) -> IResult<&str, RESPValue>
         // was not recognised.
         _ => Err(Err::Failure(nom::error::Error { input, code: ErrorKind::Fail }))
     }
-}
-
-/// Parse a simple string and return its contents.
-/// Simple strings begin with a "+".
-fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
-{
-    println!("resp_string: {}", input);
-    // Consume a '+'
-    let (remaining_input, _parsed_char) = char('+')(input)?;
-    // Get the string
-    let (remaining_input, simple_string) = not_line_ending(remaining_input)?;
-    // Consume the crlf
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("resp string result: ({}, {})", remaining_input, simple_string);
-
-    Ok((
-        remaining_input,
-        RESPValue::SimpleString(simple_string.to_owned()),
-    ))
-}
-
-/// Parse a simple error string and return its contents.
-///
-/// Simple error strings begin with a "-".
-fn resp_simple_error(input: &str) -> IResult<&str, RESPValue>
-{
-    // Consume a '-'
-    let (remaining_input, _parsed_char) = char('-')(input)?;
-    // Get the inner string
-    let (remaining_input, simple_error) = not_line_ending(remaining_input)?;
-    // Consume the crlf
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    Ok((
-        remaining_input,
-        RESPValue::SimpleError(simple_error.to_owned()),
-    ))
-}
-
-fn resp_integer(input: &str) -> IResult<&str, RESPValue>
-{
-    println!("resp_integer: {}", input);
-    // Consume a ':'
-    let (remaining_input, _parsed_char) = char(':')(input)?;
-
-    // Get the integer value
-    let (remaining_input, integer_value) = parse_i64(remaining_input)?;
-
-    // Consume the crlf
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("resp int result: ({}, {})", remaining_input, integer_value);
-
-    Ok((
-        remaining_input,
-        RESPValue::Integer(integer_value),
-    ))
-}
-
-fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
-{
-    // println!("bulk_string: {}", input);
-    // Consume a '$'
-    let (remaining_input, _parsed_char) = char('$')(input)?;
-
-    // Get the length of the bulk string
-    let (remaining_input, string_length) = parse_u32(remaining_input)?;
-
-    // Consume the first CRLF delimiter
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    // Get the string
-    let (remaining_input, inner_string) = take(string_length)(remaining_input)?;
-
-    // Consume the second CRLF delimiter
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("bulk string result: ({}, {})", remaining_input, inner_string);
-
-    Ok((
-        remaining_input,
-        RESPValue::BulkString(inner_string.to_owned()),
-    ))
-}
-
-fn resp_array(input: &str) -> IResult<&str, RESPValue>
-{
-    // println!("resp_array: {}", input);
-
-    // Parse the *
-    let (remaining_input, _parsed_char) = char('*')(input)?;
-
-    // Get the length of the array
-    let (remaining_input, array_length) = parse_u32(remaining_input)?;
-
-    // Consume the first CRLF delimiter
-    let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    // Get the contents of the array
-    let mut array_contents: VecDeque<RESPValue> = VecDeque::with_capacity(array_length as usize);
-
-    let mut remaining_input = remaining_input;
-    for _ in 0..array_length
-    {
-        let (current_remaining_input, next_entry) = redis_value(remaining_input)?;
-        remaining_input = current_remaining_input;
-
-        array_contents.push_back(next_entry);
-    }
-
-    println!("resp array result: ({}, {:#?})", remaining_input, array_contents);
-
-    Ok((
-        remaining_input,
-        RESPValue::Array(array_contents),
-    ))
-}
-
-fn parse_i64(input: &str) -> IResult<&str, i64>
-{
-    map_res(digit1, str::parse::<i64>).parse(input)
-}
-
-fn parse_u32(input: &str) -> IResult<&str, u32>
-{
-    map_res(digit1, str::parse::<u32>).parse(input)
-}
-
-#[cfg(test)]
-mod tests
-{
-    // TODO: Testing
 }

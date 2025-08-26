@@ -4,7 +4,7 @@ use chrono::Utc;
 use tokio::io::AsyncWriteExt;
 
 
-pub(crate) async fn get(
+pub async fn get(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
     key: String,
@@ -34,7 +34,7 @@ pub(crate) async fn get(
 
     writer.write_all(response)
           .await
-          .with_context(|| "")?;
+          .with_context(|| "get(): could not write buffer contents to TCP stream")?;
 
     writer.flush().await?;
     Ok(())

@@ -15,7 +15,7 @@ pub async fn echo(
     // Write the contents of the buffer to the stream.
     writer.write_all(response)
           .await
-          .with_context(|| "Could not write buffer contents to TCP stream")?;
+          .with_context(|| "echo(): could not write buffer contents to TCP stream")?;
 
     // Ensure the data is written to the stream immediately.
     writer.flush().await?;

@@ -23,7 +23,7 @@ pub async fn set(
     let response = b"+OK\r\n";
     writer.write_all(response)
           .await
-          .with_context(|| "Could not write buffer contents to TCP stream")?;
+          .with_context(|| "set(): could not write buffer contents to TCP stream")?;
 
     // Ensure that the desired output is written to the stream immediately.
     writer.flush().await?;

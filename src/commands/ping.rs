@@ -15,7 +15,7 @@ pub async fn ping(
     // Write the contents of the buffer to the stream.
     writer.write_all(buffer)
           .await
-          .with_context(|| "Could not write buffer contents to TCP stream")?;
+          .with_context(|| "ping(): could not write buffer contents to TCP stream")?;
 
     // Ensure the data is written to the stream immediately.
     writer.flush().await?;

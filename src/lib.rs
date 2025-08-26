@@ -7,6 +7,7 @@ use crate::{
         get::get,
         ping::ping,
         redis_command::RedisCommand,
+        rpush::rpush,
         set::set,
     },
     parser::{
@@ -70,12 +71,15 @@ pub async fn handle_connection(
             println!("{command:#?}");
             match command
             {
-                RedisCommand::Ping => ping(&mut writer).await?,
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
+                RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,
+                RedisCommand::Ping => ping(&mut writer).await?,
+                RedisCommand::RPush { key, value } => {
+                    rpush(&mut writer, database.clone(), key, value).await?
+                }
                 RedisCommand::Set { key, value, px } => {
                     set(&mut writer, database.clone(), key, value, px).await?
                 },
-                RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,
             }
         }
 
