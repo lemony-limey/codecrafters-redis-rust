@@ -1,19 +1,21 @@
 use std::collections::HashMap;
 use std::fmt::format;
 use std::io::Write;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, MutexGuard};
 use crate::parser::{redis_commands, RESPValue, RedisCommand};
 use anyhow::{anyhow, Context};
 use bytes::{BufMut, Bytes, BytesMut};
 use nom::AsBytes;
 use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpStream;
+use tokio::sync::Mutex;
 
 pub mod parser;
 
 const NULL_BULK_STRING: &[u8] = b"$-1\r\n";
 
-type Database = Arc<Mutex<HashMap<String, RESPValue>>>;
+type Database = Arc<Mutex<HashMap<String, String>>>;
+
 
 /// Asynchronously handle an incoming connection.
 ///
@@ -71,6 +73,7 @@ pub async fn handle_connection(
     Ok(())
 }
 
+
 /// Handler for the PING command.
 ///
 /// Sends the byte string "+PONG\r\n" in response whenever a PING is received.
@@ -91,6 +94,7 @@ pub async fn ping(
     writer.flush().await?;
     Ok(())
 }
+
 
 /// Handler for the ECHO command.
 pub async fn echo(
@@ -113,6 +117,7 @@ pub async fn echo(
     Ok(())
 }
 
+
 pub async fn set(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
@@ -121,9 +126,9 @@ pub async fn set(
 ) -> anyhow::Result<()>
 {
     let mut database = database.lock()
-        .expect("set(): could not get mutex lock");
+        .await;
 
-    let _ = database.insert(key, value);
+    let _ = database.insert(key, value.encode().expect("could not encode RESP value"));
 
     // Indicate success
     let response = b"+OK\r\n";
@@ -136,6 +141,7 @@ pub async fn set(
     Ok(())
 }
 
+
 pub async fn get(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
@@ -144,29 +150,13 @@ pub async fn get(
 {
     // If the given key does not exist in the database, return a null bulk string.
     let database = database.lock()
-        .expect("get(): could not get mutex lock");
+        .await;
 
     let mut buffer: String = String::new();
     let response: &[u8];
 
     if let Some(value) = database.get(&key)
     {
-        let value = match value {
-            RESPValue::SimpleString(string) => {
-                buffer = format!("+{}\r\n", string);
-            }
-            RESPValue::SimpleError(error) => {
-                buffer = format!("-{}\r\n", error);
-            }
-            RESPValue::Integer(integer) => {
-                buffer = format!(":{}\r\n", integer);
-            }
-            RESPValue::BulkString(string) => {
-                buffer = format!("${}\r\n{}\r\n", string.len(), string);
-            }
-            _ => unimplemented!()
-        };
-
         response = buffer.as_bytes();
     }
     else

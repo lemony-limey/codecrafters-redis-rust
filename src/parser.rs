@@ -56,6 +56,29 @@ pub enum RESPValue
     Push,            // >
 }
 
+impl RESPValue
+{
+    pub fn encode(&self) -> Option<String>
+    {
+        match self
+        {
+            RESPValue::SimpleString(string) => {
+                format!("+{}\r\n", string).into()
+            }
+            RESPValue::SimpleError(error) => {
+                format!("-{}\r\n", error).into()
+            }
+            RESPValue::Integer(integer) => {
+                format!(":{}\r\n", integer).into()
+            }
+            RESPValue::BulkString(string) => {
+                format!("${}\r\n{}\r\n", string.len(), string).into()
+            }
+            _ => None
+        }
+    }
+}
+
 
 #[derive(thiserror::Error)]
 pub enum RESPError
