@@ -1,7 +1,4 @@
-use crate::{
-    parser::resp_value::RESPValue,
-    Database,
-};
+use crate::{parser::resp_value::RESPValue, write_response, Database};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
 use tokio::io::AsyncWriteExt;
@@ -16,16 +13,9 @@ pub async fn set(
 {
     let mut database = database.lock()
         .await;
-
     let _ = database.insert(key, (value, px));
 
     // Indicate success
     let response = b"+OK\r\n";
-    writer.write_all(response)
-          .await
-          .with_context(|| "set(): could not write buffer contents to TCP stream")?;
-
-    // Ensure that the desired output is written to the stream immediately.
-    writer.flush().await?;
-    Ok(())
+    write_response(writer, response).await
 }

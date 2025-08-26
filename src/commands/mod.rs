@@ -4,3 +4,4 @@ pub mod ping;
 pub mod redis_command;
 pub mod set;
 pub mod rpush;
+pub(crate) mod lrange;

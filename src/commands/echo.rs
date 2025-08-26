@@ -1,5 +1,6 @@
 use anyhow::Context;
 use tokio::io::AsyncWriteExt;
+use crate::write_response;
 
 /// Handler for the ECHO command.
 pub async fn echo(
@@ -13,11 +14,5 @@ pub async fn echo(
     println!("response: {:#?}", response);
 
     // Write the contents of the buffer to the stream.
-    writer.write_all(response)
-          .await
-          .with_context(|| "echo(): could not write buffer contents to TCP stream")?;
-
-    // Ensure the data is written to the stream immediately.
-    writer.flush().await?;
-    Ok(())
+    write_response(writer, response).await
 }

@@ -5,17 +5,18 @@ use crate::{
     commands::{
         echo::echo,
         get::get,
+        lrange::lrange,
         ping::ping,
         redis_command::RedisCommand,
         rpush::rpush,
         set::set,
     },
     parser::{
-        redis_commands,
+        redis_commands::redis_commands,
         resp_value::RESPValue,
     },
 };
-use anyhow::anyhow;
+use anyhow::{anyhow, Context};
 use bytes::BytesMut;
 use chrono::{DateTime, Utc};
 use std::{
@@ -55,25 +56,28 @@ pub async fn handle_connection(
     // Iterate over every line from the client.
     while !buffer.is_empty() && !buffer.eq("")
     {
-        println!("{}", str::from_utf8(&buffer)?);
+        // println!("{}", str::from_utf8(&buffer)?);
 
         // Parse as many commands from the input as possible.
         let (remaining_input, commands) = redis_commands(buffer.clone().into())?;
         // If no commands could be parsed, return an error.
-        println!("{commands:#?}");
+        // println!("{commands:#?}");
         let Some(commands) = commands else {
             return Err(anyhow!("Incomplete input, cannot parse commands"));
         };
-        println!("{:#?}", commands);
+        // println!("{:#?}", commands);
 
         // Execute every command in the command queue
         for command in commands
         {
-            println!("current_command: {command:#?}");
+            // println!("current_command: {command:#?}");
             match command
             {
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
                 RedisCommand::Get { key } => get(&mut writer, database.clone(), key).await?,
+                RedisCommand::LRange { key, start, end } => {
+                    lrange(&mut writer, database.clone(), key, start, end).await?
+                },
                 RedisCommand::Ping => ping(&mut writer).await?,
                 RedisCommand::RPush { key, value } => {
                     rpush(&mut writer, database.clone(), key, value).await?
@@ -86,11 +90,28 @@ pub async fn handle_connection(
 
         buffer = BytesMut::from(remaining_input.as_bytes());
         let _bytes_received = reader.read_buf(&mut buffer).await?;
-        println!("just read into buffer: {:#?}", buffer);
-        println!("database now: {:#?}", database.lock().await);
+        // println!("just read into buffer: {:#?}", buffer);
+        // println!("database now: {:#?}", database.lock().await);
     }
 
     // Close the output stream
     writer.shutdown().await?;
+    Ok(())
+}
+
+
+pub async fn write_response(
+    writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
+    response: &[u8],
+) -> anyhow::Result<()>
+{
+    // Write the contents of the buffer to the stream.
+    writer.write_all(response)
+          .await
+          .with_context(|| "could not write buffer contents to TCP stream")?;
+
+    // Ensure the data is written to the stream immediately.
+    writer.flush().await?;
+
     Ok(())
 }

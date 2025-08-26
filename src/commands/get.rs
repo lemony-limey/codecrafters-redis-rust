@@ -1,6 +1,7 @@
-use crate::{Database, NULL_BULK_STRING};
+use crate::{write_response, Database, NULL_BULK_STRING};
 use anyhow::Context;
 use chrono::Utc;
+use nom::AsBytes;
 use tokio::io::AsyncWriteExt;
 
 
@@ -32,10 +33,5 @@ pub async fn get(
         }
     }
 
-    writer.write_all(response)
-          .await
-          .with_context(|| "get(): could not write buffer contents to TCP stream")?;
-
-    writer.flush().await?;
-    Ok(())
+    write_response(writer, response.as_bytes()).await
 }

@@ -44,19 +44,33 @@ impl RESPValue
         match self
         {
             RESPValue::SimpleString(string) => {
-                format!("+{}\r\n", string).into()
+                Some(format!("+{}\r\n", string))
             }
             RESPValue::SimpleError(error) => {
-                format!("-{}\r\n", error).into()
+                Some(format!("-{}\r\n", error).into())
             }
             RESPValue::Integer(integer) => {
-                format!(":{}\r\n", integer).into()
+                Some(format!(":{}\r\n", integer))
             }
             RESPValue::BulkString(string) => {
-                format!("${}\r\n{}\r\n", string.len(), string).into()
+                Some(format!("${}\r\n{}\r\n", string.len(), string))
             }
-            RESPValue::List(_) | RESPValue::Array(_) => unimplemented!(),
-            _ => None
+            RESPValue::Array(array) => {
+                let mut string = format!("*{}\r\n", array.len());
+
+                for value in array
+                {
+                    string.push_str(
+                        value.to_resp_encoded_string()
+                            .expect("could not encode value into resp string")
+                            .as_str()
+                    );
+                }
+
+                Some(string)
+            }
+            RESPValue::List(_) => unimplemented!(),
+            _ => None,
         }
     }
 }

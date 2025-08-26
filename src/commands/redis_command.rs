@@ -6,19 +6,24 @@ use std::collections::VecDeque;
 pub enum RedisCommand
 {
     Echo {
-        message: String
+        message: String,
     },
     Get {
         key: String,
     },
+    LRange {
+        key:   String,
+        start: i64,
+        end:   i64,
+    },
     Ping,
     RPush {
-        key: String,
+        key:   String,
         value: VecDeque<RESPValue>,
     },
     Set {
-        key: String,
+        key:   String,
         value: RESPValue,
-        px: Option<DateTime<Utc>>,
+        px:    Option<DateTime<Utc>>,
     },
 }

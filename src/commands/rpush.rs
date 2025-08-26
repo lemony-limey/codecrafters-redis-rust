@@ -1,9 +1,7 @@
-use crate::{
-    Database,
-    parser::resp_value::RESPValue,
-};
+use crate::{Database, parser::resp_value::RESPValue, write_response};
 use anyhow::{anyhow, Context};
 use std::collections::{LinkedList, VecDeque};
+use nom::AsBytes;
 use tokio::io::AsyncWriteExt;
 
 
@@ -27,7 +25,7 @@ pub async fn rpush(
     }
 
     // If key does exist, ensure that it is associated with a List, not some other RESPValue.
-    let Some((RESPValue::List(linked_list), None)) = database.get_mut(&key) else {
+    let Some((RESPValue::List(linked_list), _expiry)) = database.get_mut(&key) else {
         // TODO: Respond with failure
 
         return Err(anyhow!("rpush(): specified key is not associated with a linked list"));
@@ -44,10 +42,6 @@ pub async fn rpush(
     let response = RESPValue::Integer(list_size as i64)
         .to_resp_encoded_string()
         .expect("could not create resp string for specified integer");
-    writer.write_all(response.as_bytes())
-        .await
-        .with_context(|| "rpush(): could not write buffer contents to TCP stream")?;
-
-    writer.flush().await?;
-    Ok(())
+    
+    write_response(writer, response.as_bytes()).await
 }
