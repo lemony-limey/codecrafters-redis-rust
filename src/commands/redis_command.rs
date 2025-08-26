@@ -1,5 +1,6 @@
 use crate::parser::resp_value::RESPValue;
 use chrono::{DateTime, Utc};
+use std::collections::VecDeque;
 
 #[derive(Debug, Clone)]
 pub enum RedisCommand
@@ -13,7 +14,7 @@ pub enum RedisCommand
     Ping,
     RPush {
         key: String,
-        value: RESPValue,
+        value: VecDeque<RESPValue>,
     },
     Set {
         key: String,

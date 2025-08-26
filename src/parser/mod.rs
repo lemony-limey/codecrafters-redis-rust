@@ -118,16 +118,14 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
                     ));
                 };
 
-                // Value
-                let front_of_queue = resp_array.pop_front();
-                let Some(value) = front_of_queue else {
-                    return Err(anyhow!(
-                        "redis_commands(): rpush: failed to parse argument {:#?}",
-                        front_of_queue
-                    ));
-                };
+                // Values
+                let mut values = VecDeque::new();
+                while let Some(value) = resp_array.pop_front()
+                {
+                    values.push_back(value);
+                }
 
-                current_command = RedisCommand::RPush { key, value }
+                current_command = RedisCommand::RPush { key, value: values }
             },
             "set" => {
                 let RedisCommand::Set { key, value, px } = parse_set_command(&mut resp_array)? else {

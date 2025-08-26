@@ -68,7 +68,7 @@ pub async fn handle_connection(
         // Execute every command in the command queue
         for command in commands
         {
-            println!("{command:#?}");
+            println!("current_command: {command:#?}");
             match command
             {
                 RedisCommand::Echo { message } => echo(&mut writer, message).await?,
@@ -86,10 +86,7 @@ pub async fn handle_connection(
         buffer = BytesMut::from(remaining_input.as_bytes());
         let _bytes_received = reader.read_buf(&mut buffer).await?;
         println!("buffer now: {:#?}", buffer);
-
-        {
-            println!("database now: {:#?}", database.lock().await);
-        }
+        println!("database now: {:#?}", database.lock().await);
     }
 
     // Close the output stream

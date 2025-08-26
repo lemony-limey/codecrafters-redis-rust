@@ -3,7 +3,7 @@ use crate::{
     parser::resp_value::RESPValue,
 };
 use anyhow::{anyhow, Context};
-use std::collections::LinkedList;
+use std::collections::{LinkedList, VecDeque};
 use tokio::io::AsyncWriteExt;
 
 
@@ -11,7 +11,7 @@ pub async fn rpush(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,
     database: Database,
     key: String,
-    value: RESPValue,
+    values: VecDeque<RESPValue>,
 ) -> anyhow::Result<()>
 {
     // Check if the key is in the database, and add it if not.
@@ -30,12 +30,14 @@ pub async fn rpush(
     let Some((RESPValue::List(linked_list), None)) = database.get_mut(&key) else {
         // TODO: Respond with failure
 
-
         return Err(anyhow!("rpush(): specified key is not associated with a linked list"));
     };
 
     // Append the key to the end of the linked list
-    linked_list.push_back(value);
+    for value in values
+    {
+        linked_list.push_back(value);
+    }
     let list_size = linked_list.len();
 
     // Respond with success
