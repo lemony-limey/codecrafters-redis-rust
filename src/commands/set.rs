@@ -1,7 +1,5 @@
 use crate::{parser::resp_value::RESPValue, write_response, Database};
-use anyhow::Context;
 use chrono::{DateTime, Utc};
-use tokio::io::AsyncWriteExt;
 
 pub async fn set(
     writer: &mut tokio::io::BufWriter<tokio::net::tcp::WriteHalf<'_>>,

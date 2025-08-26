@@ -52,7 +52,7 @@ pub fn redis_commands(input: Bytes) -> anyhow::Result<(String, Option<VecDeque<R
             return Err(anyhow!("redis_commands(): dodgy bulk string: {:#?}", front_of_queue));
         };
 
-        println!("command name: {}", command_name);
+        // println!("command name: {}", command_name);
 
         // Attempt to match the bulk string to the name of a valid command
         let current_command: RedisCommand;

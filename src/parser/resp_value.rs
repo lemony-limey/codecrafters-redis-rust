@@ -80,15 +80,12 @@ impl RESPValue
 /// Simple strings begin with a "+".
 pub(crate) fn resp_simple_string(input: &str) -> IResult<&str, RESPValue>
 {
-    println!("resp_string: {}", input);
     // Consume a '+'
     let (remaining_input, _parsed_char) = char('+')(input)?;
     // Get the string
     let (remaining_input, simple_string) = not_line_ending(remaining_input)?;
     // Consume the crlf
     let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("resp string result: ({}, {})", remaining_input, simple_string);
 
     Ok((
         remaining_input,
@@ -118,7 +115,6 @@ pub(crate) fn resp_simple_error(input: &str) -> IResult<&str, RESPValue>
 
 pub(crate) fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 {
-    println!("resp_integer: {}", input);
     // Consume a ':'
     let (remaining_input, _parsed_char) = char(':')(input)?;
 
@@ -127,8 +123,6 @@ pub(crate) fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 
     // Consume the crlf
     let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("resp int result: ({}, {})", remaining_input, integer_value);
 
     Ok((
         remaining_input,
@@ -139,7 +133,6 @@ pub(crate) fn resp_integer(input: &str) -> IResult<&str, RESPValue>
 
 pub(crate) fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 {
-    // println!("bulk_string: {}", input);
     // Consume a '$'
     let (remaining_input, _parsed_char) = char('$')(input)?;
 
@@ -154,8 +147,6 @@ pub(crate) fn resp_bulk_string(input: &str) -> IResult<&str, RESPValue>
 
     // Consume the second CRLF delimiter
     let (remaining_input, _parsed_crlf) = crlf(remaining_input)?;
-
-    println!("bulk string result: ({}, {})", remaining_input, inner_string);
 
     Ok((
         remaining_input,
@@ -188,8 +179,6 @@ pub(crate) fn resp_array(input: &str) -> IResult<&str, RESPValue>
 
         array_contents.push_back(next_entry);
     }
-
-    println!("resp array result: ({}, {:#?})", remaining_input, array_contents);
 
     Ok((
         remaining_input,

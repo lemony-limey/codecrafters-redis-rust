@@ -1,8 +1,5 @@
-use std::cmp::max;
-use anyhow::{anyhow, Context};
-use tokio::io::AsyncWriteExt;
-use crate::{write_response, Database};
 use crate::parser::resp_value::RESPValue;
+use crate::{write_response, Database};
 
 const EMPTY_ARRAY: &[u8] = b"*0\r\n";
 
@@ -24,27 +21,37 @@ pub async fn lrange(
         return write_response(writer, EMPTY_ARRAY).await;
     };
 
-    let list_len = linked_list.len();
-    while start_inclusive < 0
+    let list_len = linked_list.len() as i64;
+    if start_inclusive < -list_len
     {
-        start_inclusive += list_len as i64;
+        start_inclusive = 0;
     }
-    while end_inclusive < 0
+    else if start_inclusive < 0
     {
-        end_inclusive += list_len as i64;
+        start_inclusive += list_len;
     }
-    while end_inclusive > list_len as i64
+
+    if end_inclusive > list_len
     {
-        end_inclusive = list_len as i64 - 1
+        end_inclusive = list_len - 1;
     }
-    if start_inclusive >= list_len as i64 || start_inclusive > end_inclusive
+
+    // Either of these conditions mean we must return an empty array.
+    if start_inclusive >= list_len || end_inclusive < -list_len
     {
         return write_response(writer, EMPTY_ARRAY).await;
     }
 
-    response = format!("*{}\r\n", end_inclusive - start_inclusive + 1);
+    if end_inclusive < 0
+    {
+        end_inclusive += list_len;
+    }
 
-    let response = linked_list.iter()
+    response = format!("*{}\r\n", end_inclusive - start_inclusive + 1);
+    println!("{:#?}", *linked_list);
+    println!("start: {}, end: {}, list_len: {}", start_inclusive, end_inclusive, list_len);
+
+    let response = linked_list.iter().clone()
         .skip(start_inclusive as usize)
         .take((end_inclusive - start_inclusive + 1) as usize)
         .fold(&mut response, |acc, next_value| {
@@ -55,6 +62,8 @@ pub async fn lrange(
             );
             acc
         });
+
+    println!("list_len afterwards: {}", linked_list.len());
 
     write_response(writer, response.as_bytes()).await
 }

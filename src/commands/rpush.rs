@@ -1,8 +1,7 @@
-use crate::{Database, parser::resp_value::RESPValue, write_response};
-use anyhow::{anyhow, Context};
-use std::collections::{LinkedList, VecDeque};
+use crate::{parser::resp_value::RESPValue, write_response, Database};
+use anyhow::anyhow;
 use nom::AsBytes;
-use tokio::io::AsyncWriteExt;
+use std::collections::{LinkedList, VecDeque};
 
 
 pub async fn rpush(
